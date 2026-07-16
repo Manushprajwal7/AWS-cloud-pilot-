@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+
+# Background worker image (workers/*.ts — BullMQ consumers, run via tsx,
+# not pre-compiled). docker-compose.yml runs four containers from this one
+# image, each with a different `command:` override — one process per
+# container, matching how they run in local dev (`pnpm worker:<name>`).
+
+FROM node:20-slim AS base
+RUN corepack enable
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+FROM deps AS runner
+ENV NODE_ENV=production
+COPY . .
+RUN pnpm prisma generate
+
+# procps provides pgrep, used by docker-compose.yml's per-worker healthcheck
+# (these are long-running consumers with no HTTP endpoint to probe).
+RUN apt-get update && apt-get install -y --no-install-recommends procps \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system --gid 1001 nodejs \
+    && useradd --system --uid 1001 --gid nodejs worker
+USER worker
+
+# No default CMD — docker-compose.yml sets `command: pnpm worker:<name>`
+# per service so each container's identity (and its heartbeat name in
+# lib/queue/heartbeat.ts) is explicit rather than guessed from argv.
+CMD ["pnpm", "worker:terraform"]

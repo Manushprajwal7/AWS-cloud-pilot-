@@ -1,0 +1,296 @@
+// Phase 6 persistence layer. This schema replaces the in-memory stores
+// (lib/simulation/simulation-store.ts, lib/anomalies/detector.ts) as the
+// system of record for anything that must survive a server restart or be
+// shared across processes (LangGraph runs, Terraform executions, audit
+// trail). Repository modules in lib/db/repositories/* are the only code
+// that should import PrismaClient directly.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Cloud inventory
+// ---------------------------------------------------------------------------
+
+model CloudResource {
+  id            String   @id @default(uuid())
+  externalId    String   @unique
+  name          String
+  service       String
+  environment   String
+  region        String
+  status        String
+  configuration Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  metricSnapshots MetricSnapshot[]
+  anomalies       Anomaly[]
+
+  @@index([service])
+  @@index([environment])
+  @@index([updatedAt])
+}
+
+model MetricSnapshot {
+  id         String        @id @default(uuid())
+  resourceId String
+  resource   CloudResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  metrics    Json
+  cost       Json
+  capturedAt DateTime      @default(now())
+
+  @@index([resourceId, capturedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Anomaly detection
+// ---------------------------------------------------------------------------
+
+model Anomaly {
+  id               String        @id @default(uuid())
+  resourceId       String
+  resource         CloudResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  type             String
+  severity         String
+  confidence       Float
+  evidence         Json
+  status           String        @default("active")
+  detectedAt       DateTime      @default(now())
+  firstObservedAt  DateTime      @default(now())
+  lastObservedAt   DateTime      @default(now())
+  resolvedAt       DateTime?
+  resolutionReason String?
+
+  agentRuns        AgentRun[]
+  remediationPlans RemediationPlan[]
+
+  @@index([resourceId])
+  @@index([status, severity])
+  @@index([type])
+}
+
+// ---------------------------------------------------------------------------
+// LangGraph orchestration
+// ---------------------------------------------------------------------------
+
+model AgentRun {
+  id          String    @id @default(uuid())
+  runId       String    @unique
+  anomalyId   String?
+  anomaly     Anomaly?  @relation(fields: [anomalyId], references: [id], onDelete: SetNull)
+  status      String    @default("pending")
+  currentNode String?
+  input       Json
+  output      Json?
+  error       String?
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  nodeRuns         AgentNodeRun[]
+  remediationPlans RemediationPlan[]
+  auditEvents      AuditEvent[]
+
+  @@index([runId])
+  @@index([status])
+  @@index([anomalyId])
+  @@index([startedAt])
+}
+
+model AgentNodeRun {
+  id          String    @id @default(uuid())
+  agentRunId  String
+  agentRun    AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  node        String
+  status      String    @default("pending")
+  input       Json?
+  output      Json?
+  error       String?
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  durationMs  Int?
+
+  @@index([agentRunId])
+  @@index([agentRunId, node])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Remediation / Terraform / policy / verification / rollback
+// ---------------------------------------------------------------------------
+
+model RemediationPlan {
+  id                        String   @id @default(uuid())
+  agentRunId                String
+  agentRun                  AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  anomalyId                 String?
+  anomaly                   Anomaly? @relation(fields: [anomalyId], references: [id], onDelete: SetNull)
+  action                    String
+  resourceId                String
+  rationale                 String
+  expectedMonthlySavingsUsd Float?
+  /**
+   * Set by calculateRealizedSavingsWorker (Phase 9) after a successful, non-rolled-back apply.
+   */
+  realizedMonthlySavingsUsd Float?
+  riskLevel                 String
+  status                    String   @default("proposed")
+  createdAt                 DateTime @default(now())
+
+  terraformArtifacts TerraformArtifact[]
+  policyDecisions    PolicyDecision[]
+
+  @@index([agentRunId])
+  @@index([status])
+  @@index([resourceId])
+}
+
+model TerraformArtifact {
+  id                String          @id @default(uuid())
+  remediationPlanId String
+  remediationPlan   RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  hcl               String
+  planJson          Json?
+  checksum          String
+  createdAt         DateTime        @default(now())
+
+  executions         TerraformExecution[]
+  correctionAttempts TerraformCorrectionAttempt[]
+  planApprovals      PlanApproval[]
+
+  @@index([remediationPlanId])
+}
+
+model TerraformExecution {
+  id                  String            @id @default(uuid())
+  terraformArtifactId String
+  terraformArtifact   TerraformArtifact @relation(fields: [terraformArtifactId], references: [id], onDelete: Cascade)
+  jobId               String?           @unique
+  operation           String
+  status              String            @default("queued")
+  logs                String?
+  exitCode            Int?
+  /**
+   * Set only on operation="apply": the code/plan hash that was actually applied, for the immutable-plan audit trail.
+   */
+  appliedCodeHash     String?
+  appliedPlanHash     String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime          @default(now())
+
+  verificationResults VerificationResult[]
+  rollbackRecords     RollbackRecord[]
+
+  @@index([status])
+  @@index([terraformArtifactId])
+  @@index([jobId])
+}
+
+/**
+ * One row per self-correction attempt (selfCorrectionAgent), bounded to 3 per graph run.
+ */
+model TerraformCorrectionAttempt {
+  id                  String            @id @default(uuid())
+  terraformArtifactId String
+  terraformArtifact   TerraformArtifact @relation(fields: [terraformArtifactId], references: [id], onDelete: Cascade)
+  attemptNumber       Int
+  previousCodeHash    String
+  correctedCodeHash   String?
+  triggerError        String
+  result              String
+  createdAt           DateTime          @default(now())
+
+  @@index([terraformArtifactId])
+  @@index([result])
+}
+
+/**
+ * Deterministic plan-policy analysis + auto-approval decision for one plan (planPolicyWorker / autoApprovalWorker). Never written by an LLM.
+ */
+model PlanApproval {
+  id                            String            @id @default(uuid())
+  terraformArtifactId           String
+  terraformArtifact             TerraformArtifact @relation(fields: [terraformArtifactId], references: [id], onDelete: Cascade)
+  codeHash                      String
+  planHash                      String
+  createCount                   Int
+  updateCount                   Int
+  deleteCount                   Int
+  replacementCount              Int
+  affectedResourceCount         Int
+  estimatedMonthlyCostChangeUsd Float
+  riskScore                     Float
+  decision                      String
+  reason                        String
+  approvedAt                    DateTime?
+  createdAt                     DateTime          @default(now())
+
+  @@index([terraformArtifactId])
+  @@index([decision])
+}
+
+model PolicyDecision {
+  id                String          @id @default(uuid())
+  remediationPlanId String
+  remediationPlan   RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  decision          String
+  reason            String
+  policyName        String
+  evaluatedAt       DateTime        @default(now())
+
+  @@index([remediationPlanId])
+  @@index([decision])
+}
+
+model VerificationResult {
+  id                   String             @id @default(uuid())
+  terraformExecutionId String
+  terraformExecution   TerraformExecution @relation(fields: [terraformExecutionId], references: [id], onDelete: Cascade)
+  checkName            String
+  passed               Boolean
+  details              Json?
+  verifiedAt           DateTime           @default(now())
+
+  @@index([terraformExecutionId])
+  @@index([passed])
+}
+
+model RollbackRecord {
+  id                   String             @id @default(uuid())
+  terraformExecutionId String
+  terraformExecution   TerraformExecution @relation(fields: [terraformExecutionId], references: [id], onDelete: Cascade)
+  reason               String
+  status               String             @default("pending")
+  initiatedAt          DateTime           @default(now())
+  completedAt          DateTime?
+
+  @@index([terraformExecutionId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id         String    @id @default(uuid())
+  agentRunId String?
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  actor      String
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([agentRunId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
