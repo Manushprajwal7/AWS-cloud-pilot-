@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { simulationStore } from '@/lib/simulation/simulation-store'
 import { tickEngine } from '@/lib/simulation/tick-engine'
 import { handleSimulationError } from '../errors'
 
@@ -18,13 +19,19 @@ const SCENARIO_VALUES = [
 const scenarioRequestSchema = z.object({
   resourceId: z.string().min(1),
   scenario: z.enum(SCENARIO_VALUES),
+  // Opt-in instant snap for callers (e.g. the Terraform sandbox) that need
+  // the graph run they trigger immediately after this call to see the
+  // scenario's target metrics right away, rather than racing the tick
+  // engine's gradual ramp — see simulationStore.activateScenario.
+  instant: z.boolean().optional(),
 })
 
 /**
  * POST /api/simulation/scenario — set a resource's target scenario.
- * This does NOT snap metrics instantly; it hands off to the tick engine,
- * which carries the resource's current metrics toward the new scenario's
- * target over subsequent ticks (ramp up, or recovery back to NORMAL).
+ * By default this does NOT snap metrics instantly; it hands off to the tick
+ * engine, which carries the resource's current metrics toward the new
+ * scenario's target over subsequent ticks (ramp up, or recovery back to
+ * NORMAL). Pass `instant: true` to snap straight to the target instead.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let body: unknown
@@ -43,7 +50,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const resource = tickEngine.setResourceScenario(parsed.data.resourceId, parsed.data.scenario)
+    const resource = parsed.data.instant
+      ? simulationStore.activateScenario(parsed.data.resourceId, parsed.data.scenario)
+      : tickEngine.setResourceScenario(parsed.data.resourceId, parsed.data.scenario)
     return NextResponse.json({ resource })
   } catch (error) {
     return handleSimulationError(error)

@@ -7,7 +7,7 @@ export function ChartLoadingState({ heightClassName = 'h-64' }: { heightClassNam
     <div className={`${heightClassName} flex flex-col items-center justify-center gap-2 animate-pulse`} role="status" aria-label="Loading chart data">
       <div className="w-full h-full flex items-end gap-1.5 px-2 pb-2">
         {[40, 65, 50, 80, 55, 70, 45, 60].map((h, i) => (
-          <div key={i} className="flex-1 bg-gray-200 rounded-t" style={{ height: `${h}%` }} />
+          <div key={i} className="flex-1 bg-subtle rounded-t" style={{ height: `${h}%` }} />
         ))}
       </div>
     </div>
@@ -22,9 +22,9 @@ export function ChartEmptyState({
   heightClassName?: string
 }) {
   return (
-    <div className={`${heightClassName} flex flex-col items-center justify-center gap-2 text-gray-400`}>
-      <Inbox className="w-8 h-8" aria-hidden="true" />
-      <p className="text-sm">{message}</p>
+    <div className={`${heightClassName} flex flex-col items-center justify-center gap-2 text-graphite`}>
+      <Inbox className="w-7 h-7" strokeWidth={1.5} aria-hidden="true" />
+      <p className="text-[13px]">{message}</p>
     </div>
   )
 }
@@ -39,14 +39,14 @@ export function ChartErrorState({
   heightClassName?: string
 }) {
   return (
-    <div className={`${heightClassName} flex flex-col items-center justify-center gap-3 text-red-600`} role="alert">
-      <AlertTriangle className="w-8 h-8" aria-hidden="true" />
-      <p className="text-sm text-center max-w-xs">{message}</p>
+    <div className={`${heightClassName} flex flex-col items-center justify-center gap-3 text-danger`} role="alert">
+      <AlertTriangle className="w-7 h-7" strokeWidth={1.5} aria-hidden="true" />
+      <p className="text-[13px] text-center max-w-xs">{message}</p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+          className="inline-flex items-center gap-1.5 text-[11px] font-mono font-medium px-2.5 py-1 border border-danger/30 rounded-sm hover:bg-danger-soft transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
           Retry

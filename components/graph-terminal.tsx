@@ -3,62 +3,24 @@
 /**
  * Drives a real LangGraph execution end-to-end: POST /api/graph/run starts
  * it, then this component opens the SSE stream at
- * /api/graph/runs/:runId/stream and renders each node_event as it actually
- * happens. Every line here corresponds to a real completed graph node —
- * nothing is simulated client-side.
+ * /api/graph/runs/:runId/stream just to know when the run finishes (so the
+ * button can re-enable) — progress and results are visible in
+ * GraphRunsPanel/GraphVisualizer elsewhere on the dashboard.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Play, Trash2, Loader, CheckCircle, AlertCircle, GitBranch } from 'lucide-react'
-
-interface GraphLogEntry {
-  type: 'status' | 'node' | 'error' | 'final'
-  content: string
-  timestamp: Date
-}
+import { Play, Trash2 } from 'lucide-react'
 
 const DEFAULT_RESOURCE_ID = 'res-ec2-prod-01'
 
-const NODE_LABELS: Record<string, string> = {
-  monitor: 'monitorWorker',
-  detectAnomaly: 'anomalyDetectionWorker',
-  diagnose: 'diagnosisAgent',
-  calculateImpact: 'financialImpactWorker',
-  planRemediation: 'planningAgent',
-  terraformGenerate: 'terraformGenerationAgent',
-  staticSecurity: 'staticSecurityWorker',
-  terraformFormat: 'terraformFormatWorker',
-  terraformInit: 'terraformInitWorker',
-  terraformValidate: 'terraformValidateWorker',
-  selfCorrection: 'selfCorrectionAgent',
-  terraformPlan: 'terraformPlanWorker',
-  planPolicy: 'planPolicyWorker',
-  autoApproval: 'autoApprovalWorker',
-  terraformApply: 'terraformApplyWorker',
-  audit: 'auditWorker',
-}
-
 export function GraphTerminal() {
-  const [logs, setLogs] = useState<GraphLogEntry[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [resourceId, setResourceId] = useState(DEFAULT_RESOURCE_ID)
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [logs])
-
-  function appendLog(entry: Omit<GraphLogEntry, 'timestamp'>): void {
-    setLogs((prev) => [...prev, { ...entry, timestamp: new Date() }])
-  }
 
   async function runGraph(): Promise<void> {
     if (isRunning) return
     setIsRunning(true)
-    setLogs([{ type: 'status', content: `Starting LangGraph run for '${resourceId}'...`, timestamp: new Date() }])
 
     try {
       const startResponse = await fetch('/api/graph/run', {
@@ -73,7 +35,6 @@ export function GraphTerminal() {
       }
 
       const { runId } = (await startResponse.json()) as { runId: string }
-      appendLog({ type: 'status', content: `Run started: ${runId}` })
 
       const streamResponse = await fetch(`/api/graph/runs/${runId}/stream`)
       if (!streamResponse.ok || !streamResponse.body) {
@@ -98,67 +59,24 @@ export function GraphTerminal() {
 
           try {
             const event = JSON.parse(line.slice('data:'.length).trim())
-
-            if (event.type === 'node_event') {
-              const label = NODE_LABELS[event.record.node] ?? event.record.node
-              appendLog({
-                type: event.record.status === 'failed' ? 'error' : 'node',
-                content: `[${label}] ${event.record.status}${event.record.error ? ` — ${event.record.error}` : ''}`,
-              })
-            } else if (event.type === 'command_output') {
-              const label = NODE_LABELS[event.node] ?? event.node
-              for (const outLine of String(event.chunk).split('\n').filter(Boolean)) {
-                appendLog({ type: event.stream === 'stderr' ? 'error' : 'node', content: `[${label}] ${outLine}` })
-              }
-            } else if (event.type === 'run_completed') {
-              const state = event.finalState
-              const parts: string[] = []
-              if (state.anomaly) {
-                parts.push(`anomaly=${state.anomaly.type}`, `action=${state.remediationPlan?.action ?? 'n/a'}`)
-              } else {
-                parts.push('no active anomaly found')
-              }
-              if (state.correctionAttempts > 0) parts.push(`correctionAttempts=${state.correctionAttempts}`)
-              if (state.approvalDecision) parts.push(`approval=${state.approvalDecision.decision} (risk=${state.approvalDecision.analysis.riskScore})`)
-              if (state.applySucceeded) parts.push('applied=true')
-              appendLog({ type: 'final', content: `Run completed (${state.status}): ${parts.join(' ')}` })
-              return
-            } else if (event.type === 'run_failed') {
-              appendLog({ type: 'error', content: `Run failed: ${event.error}` })
-              return
-            }
+            if (event.type === 'run_completed' || event.type === 'run_failed') return
           } catch {
             // Malformed frame — skip it rather than tearing down the stream.
           }
         }
       }
-    } catch (error) {
-      appendLog({ type: 'error', content: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
       setIsRunning(false)
     }
   }
 
-  const clearLogs = () => setLogs([])
-
-  const styleFor = (type: GraphLogEntry['type']) => {
-    switch (type) {
-      case 'node':
-        return { icon: <GitBranch className="w-4 h-4" />, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' }
-      case 'error':
-        return { icon: <AlertCircle className="w-4 h-4" />, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' }
-      case 'final':
-        return { icon: <CheckCircle className="w-4 h-4" />, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' }
-      default:
-        return { icon: <Loader className="w-4 h-4" />, color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-200' }
-    }
-  }
+  const clearResourceId = () => setResourceId(DEFAULT_RESOURCE_ID)
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg flex flex-col h-full">
-      <div className="border-b border-slate-200 p-4">
+    <div className="bg-panel border border-hairline flex flex-col h-full">
+      <div className="p-5">
         <div className="mb-4">
-          <label htmlFor="graph-resource-id" className="text-sm font-medium text-slate-700 mb-2 block">
+          <label htmlFor="graph-resource-id" className="text-[10px] font-mono uppercase tracking-wider text-graphite mb-1.5 block">
             Resource ID
           </label>
           <input
@@ -167,48 +85,20 @@ export function GraphTerminal() {
             onChange={(e) => setResourceId(e.target.value)}
             disabled={isRunning}
             placeholder="res-ec2-prod-01"
-            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-900 placeholder-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full bg-subtle border border-hairline rounded-sm px-3 py-2 text-[13px] font-mono text-ink placeholder-graphite/70 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-signal focus:bg-panel transition-all"
           />
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={runGraph} disabled={isRunning} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white" size="sm">
-            <Play className="w-4 h-4" aria-hidden="true" />
+          <Button onClick={runGraph} disabled={isRunning} className="gap-2 bg-signal hover:bg-signal/90 text-white rounded-sm uppercase text-[12px] tracking-wide font-mono" size="sm">
+            <Play className="w-3.5 h-3.5" aria-hidden="true" />
             {isRunning ? 'Running graph...' : 'Run LangGraph'}
           </Button>
-          <Button onClick={clearLogs} disabled={isRunning} variant="outline" size="sm" className="gap-2">
-            <Trash2 className="w-4 h-4" aria-hidden="true" />
+          <Button onClick={clearResourceId} disabled={isRunning} variant="outline" size="sm" className="gap-2 rounded-sm border-hairline text-ink hover:bg-subtle uppercase text-[12px] tracking-wide font-mono">
+            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
             Clear
           </Button>
         </div>
-      </div>
-
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 space-y-3 min-h-96 bg-gradient-to-b from-slate-50 to-slate-100"
-        role="log"
-        aria-live="polite"
-        aria-label="LangGraph execution log"
-      >
-        {logs.length === 0 ? (
-          <div className="text-slate-500 text-center py-12">
-            <p className="text-sm">Graph terminal ready. Click &quot;Run LangGraph&quot; to execute the orchestration pipeline.</p>
-          </div>
-        ) : (
-          logs.map((log, idx) => {
-            const style = styleFor(log.type)
-            return (
-              <article key={idx} className={`${style.bg} border ${style.border} rounded-lg p-3 whitespace-pre-wrap break-words text-sm`}>
-                <div className={`flex items-center gap-2 font-semibold ${style.color} mb-1`}>
-                  {style.icon}
-                  <span className="uppercase text-xs">{log.type}</span>
-                  <time className="text-xs font-normal text-slate-500 ml-auto">{log.timestamp.toLocaleTimeString()}</time>
-                </div>
-                <div className="text-slate-700 ml-6">{log.content}</div>
-              </article>
-            )
-          })
-        )}
       </div>
     </div>
   )

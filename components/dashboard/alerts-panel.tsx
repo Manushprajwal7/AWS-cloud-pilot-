@@ -7,10 +7,10 @@ import { ConnectionStatusBadge } from '@/components/monitoring/connection-status
 import type { AnomalySeverity } from '@/lib/anomalies/types'
 
 const SEVERITY_CONFIG: Record<AnomalySeverity, { icon: typeof AlertCircle; color: string; bgColor: string; borderColor: string }> = {
-  critical: { icon: AlertCircle, color: 'text-red-600', bgColor: 'bg-red-50', borderColor: 'border-red-200' },
-  high: { icon: AlertCircle, color: 'text-red-600', bgColor: 'bg-red-50', borderColor: 'border-red-200' },
-  medium: { icon: AlertTriangle, color: 'text-orange-600', bgColor: 'bg-orange-50', borderColor: 'border-orange-200' },
-  low: { icon: Info, color: 'text-blue-600', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
+  critical: { icon: AlertCircle, color: 'text-danger', bgColor: 'bg-danger-soft', borderColor: 'border-danger/25' },
+  high: { icon: AlertCircle, color: 'text-danger', bgColor: 'bg-danger-soft', borderColor: 'border-danger/25' },
+  medium: { icon: AlertTriangle, color: 'text-warn', bgColor: 'bg-warn-soft', borderColor: 'border-warn/25' },
+  low: { icon: Info, color: 'text-info', bgColor: 'bg-info-soft', borderColor: 'border-info/25' },
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -38,9 +38,9 @@ export function AlertsPanel() {
   const sorted = [...anomalies].sort((a, b) => b.lastObservedAt.localeCompare(a.lastObservedAt))
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+    <div className="bg-panel border border-hairline p-5 h-full">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-900 text-sm">Recent Anomalies</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite">Recent Anomalies</h3>
         <ConnectionStatusBadge status={status} onReconnect={reconnect} />
       </div>
 
@@ -49,9 +49,9 @@ export function AlertsPanel() {
       ) : status === 'connecting' && anomalies.length === 0 ? (
         <ChartLoadingState heightClassName="h-40" />
       ) : sorted.length === 0 ? (
-        <div className="h-40 flex flex-col items-center justify-center gap-2 text-gray-400">
-          <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
-          <p className="text-sm">No active anomalies detected.</p>
+        <div className="h-40 flex flex-col items-center justify-center gap-2 text-graphite">
+          <CheckCircle2 className="w-7 h-7" strokeWidth={1.5} aria-hidden="true" />
+          <p className="text-[13px]">No active anomalies detected.</p>
         </div>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto" role="list" aria-label="Active anomalies">
@@ -62,26 +62,26 @@ export function AlertsPanel() {
               <div
                 key={anomaly.id}
                 role="listitem"
-                className={`p-3 rounded-lg border ${config.bgColor} ${config.borderColor} transition-colors`}
+                className={`p-3 border-l-2 ${config.bgColor} ${config.borderColor} transition-colors`}
               >
                 <div className="flex items-start gap-3">
-                  <Icon className={`w-4 h-4 ${config.color} mt-0.5 flex-shrink-0`} aria-hidden="true" />
+                  <Icon className={`w-4 h-4 ${config.color} mt-0.5 flex-shrink-0`} strokeWidth={1.75} aria-hidden="true" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-900">{TYPE_LABEL[anomaly.type] ?? anomaly.type}</p>
-                      <span className="text-[10px] uppercase font-semibold text-gray-500">{anomaly.severity}</span>
+                      <p className="text-[13px] font-medium text-ink">{TYPE_LABEL[anomaly.type] ?? anomaly.type}</p>
+                      <span className="text-[9px] uppercase font-mono font-semibold text-graphite">{anomaly.severity}</span>
                     </div>
-                    <p className="text-xs text-gray-600 mt-1">{anomaly.evidence[0]?.description ?? 'Condition detected.'}</p>
+                    <p className="text-[12px] text-graphite mt-1">{anomaly.evidence[0]?.description ?? 'Condition detected.'}</p>
                     <div className="flex items-center justify-between mt-2">
-                      <p className="text-xs text-gray-400 font-mono">{anomaly.resourceId} · {timeAgo(anomaly.lastObservedAt)}</p>
+                      <p className="text-[11px] text-graphite font-mono">{anomaly.resourceId} · {timeAgo(anomaly.lastObservedAt)}</p>
                       {anomaly.financialImpact && (
-                        <p className="text-xs font-medium text-amber-600">
+                        <p className="text-[11px] font-mono font-medium text-warn">
                           ~${anomaly.financialImpact.estimatedWaste.monthlyUsd.toFixed(0)}/mo waste
                         </p>
                       )}
                     </div>
                     {anomaly.recommendation && (
-                      <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1 mt-2">
+                      <p className="text-[11px] text-ok bg-ok-soft border border-ok/20 rounded-sm px-2 py-1 mt-2 font-mono">
                         {anomaly.recommendation.kind === 'rightsizing' &&
                           `Rightsize ${anomaly.recommendation.currentInstanceType} → ${anomaly.recommendation.recommendedInstanceType}: save $${anomaly.recommendation.monthlySavings.toFixed(0)}/mo`}
                         {anomaly.recommendation.kind === 'scale_in' &&

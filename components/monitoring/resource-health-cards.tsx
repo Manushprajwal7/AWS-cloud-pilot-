@@ -14,11 +14,11 @@ const STATUS_ICON: Record<ResourceStatus, typeof CheckCircle2> = {
 }
 
 const STATUS_COLOR: Record<ResourceStatus, string> = {
-  running: 'text-green-600',
-  stopped: 'text-gray-400',
-  degraded: 'text-red-600',
-  optimizing: 'text-orange-500',
-  failed: 'text-red-700',
+  running: 'text-ok',
+  stopped: 'text-graphite',
+  degraded: 'text-danger',
+  optimizing: 'text-signal',
+  failed: 'text-danger',
 }
 
 export function ResourceHealthCards({
@@ -55,18 +55,18 @@ export function ResourceHealthCards({
             aria-pressed={isSelected}
             aria-label={`${resource.name}, ${resource.service}, status ${resource.status}, CPU ${resource.metrics.cpuPercent.toFixed(0)} percent, ${resource.cost.projectedMonthlyUsd.toFixed(0)} dollars per month`}
             onClick={() => onSelect?.(resource.id)}
-            className={`text-left p-3 rounded-lg border bg-white transition-colors ${
-              isSelected ? 'border-orange-400 ring-2 ring-orange-100' : 'border-gray-200 hover:border-gray-300'
+            className={`text-left p-3 rounded-sm border bg-panel transition-colors ${
+              isSelected ? 'border-signal ring-1 ring-signal/30' : 'border-hairline hover:border-graphite'
             }`}
           >
             <div className="flex items-center justify-between mb-1 gap-2">
-              <span className="text-xs font-semibold text-gray-900 truncate">{resource.name}</span>
+              <span className="text-[12px] font-semibold text-ink truncate">{resource.name}</span>
               <StatusIcon className={`w-4 h-4 flex-shrink-0 ${STATUS_COLOR[resource.status]}`} aria-hidden="true" />
             </div>
-            <p className="text-[11px] text-gray-500 mb-2 capitalize">
+            <p className="text-[11px] font-mono text-graphite mb-2 capitalize">
               {resource.service} · {resource.environment}
             </p>
-            <div className="flex items-center justify-between text-xs text-gray-600">
+            <div className="flex items-center justify-between text-[11px] font-mono text-graphite">
               <span>CPU {resource.metrics.cpuPercent.toFixed(0)}%</span>
               <span>${resource.cost.projectedMonthlyUsd.toFixed(0)}/mo</span>
             </div>

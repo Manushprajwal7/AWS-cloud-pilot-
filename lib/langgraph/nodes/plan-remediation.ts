@@ -13,7 +13,7 @@
 
 import { prisma } from '@/lib/db/client'
 import { round2 } from '@/lib/financial/pricing'
-import { calculateExpectedPostRemediationCost, type RemediationAction } from '@/lib/financial/rightsizing'
+import { calculateExpectedPostRemediationCost, isRemediationFeasible, type RemediationAction } from '@/lib/financial/rightsizing'
 import { remediationPlanSchema, type GraphState, type GraphStateUpdate } from '../state'
 import { generateStructuredOutput } from '../structured-output'
 
@@ -31,9 +31,20 @@ export async function planRemediationNode(state: GraphState): Promise<GraphState
     throw new Error('planningAgent: missing anomaly/resource/diagnosis in state — earlier nodes must run first')
   }
 
-  const action: RemediationAction = diagnosis.recommendedActionType
+  const requestedAction: RemediationAction = diagnosis.recommendedActionType
+  // Downgrade before committing to anything: terraformGenerationAgent would
+  // otherwise throw UnsupportedRemediationError for a RIGHTSIZE/SCALE_IN the
+  // LLM proposed but that isn't deterministically realizable against this
+  // resource's current metrics (e.g. utilization too high to size down),
+  // turning a legitimate "nothing to do here" outcome into a failed run.
+  const action: RemediationAction = isRemediationFeasible(resource, requestedAction) ? requestedAction : 'NO_ACTION'
   const projectedMonthlyCost = calculateExpectedPostRemediationCost(resource, action)
   const expectedMonthlySavingsUsd = Math.max(0, round2(resource.cost.projectedMonthlyUsd - projectedMonthlyCost))
+
+  const infeasibilityNote =
+    action !== requestedAction
+      ? `\n\nNote: the requested action "${requestedAction}" is not deterministically feasible for this resource's current state (e.g. utilization too high to size down, already at its smallest size/capacity, or no Terraform template exists for that action). Use action "NO_ACTION" and explain in the rationale why the originally suggested action isn't currently applicable.`
+      : ''
 
   const userPrompt = `Resource: ${resource.name} (${resource.service}, ${resource.environment})
 Diagnosis root cause: ${diagnosis.rootCause}
@@ -42,7 +53,7 @@ Recommended action type: ${action}
 Current projected monthly cost: $${resource.cost.projectedMonthlyUsd.toFixed(2)}
 Deterministically computed projected monthly cost after "${action}": $${projectedMonthlyCost.toFixed(2)}
 Deterministically computed expected monthly savings: $${expectedMonthlySavingsUsd.toFixed(2)}
-${financialImpact ? `Estimated current monthly waste from this anomaly: $${financialImpact.estimatedWaste.monthlyUsd.toFixed(2)}` : 'No waste-fraction interpretation defined for this anomaly type.'}
+${financialImpact ? `Estimated current monthly waste from this anomaly: $${financialImpact.estimatedWaste.monthlyUsd.toFixed(2)}` : 'No waste-fraction interpretation defined for this anomaly type.'}${infeasibilityNote}
 
 Produce the remediation plan JSON. action must be "${action}" and expectedMonthlySavingsUsd must be ${expectedMonthlySavingsUsd}.`
 

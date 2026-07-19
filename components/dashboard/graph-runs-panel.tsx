@@ -25,14 +25,14 @@ interface RunRow {
 type LoadState = 'loading' | 'ready' | 'error' | 'db_unavailable'
 
 const STATUS_COLOR: Record<string, string> = {
-  running: 'bg-orange-100 text-orange-700',
-  completed: 'bg-green-100 text-green-700',
-  applied: 'bg-blue-100 text-blue-700',
-  failed: 'bg-red-100 text-red-700',
-  rejected: 'bg-red-100 text-red-700',
-  rolled_back: 'bg-purple-100 text-purple-700',
-  no_anomaly: 'bg-gray-100 text-gray-600',
-  pending: 'bg-gray-100 text-gray-600',
+  running: 'bg-signal-soft text-signal',
+  completed: 'bg-ok-soft text-ok',
+  applied: 'bg-info-soft text-info',
+  failed: 'bg-danger-soft text-danger',
+  rejected: 'bg-danger-soft text-danger',
+  rolled_back: 'bg-warn-soft text-warn',
+  no_anomaly: 'bg-subtle text-graphite',
+  pending: 'bg-subtle text-graphite',
 }
 
 export function GraphRunsPanel() {
@@ -71,8 +71,8 @@ export function GraphRunsPanel() {
   }, [refreshToken])
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
-      <h3 className="font-semibold text-gray-900 mb-3">Graph Runs</h3>
+    <div className="bg-panel border border-hairline p-5">
+      <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite mb-3">Graph Runs</h3>
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-12 md:col-span-5">
           {state === 'loading' ? (
@@ -89,15 +89,15 @@ export function GraphRunsPanel() {
                 <li key={run.runId}>
                   <button
                     onClick={() => setSelected(run.runId)}
-                    className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-colors ${
-                      selected === run.runId ? 'border-orange-300 bg-orange-50' : 'border-gray-100 hover:bg-gray-50'
+                    className={`w-full text-left px-3 py-2 border-l-2 text-[11px] font-mono transition-colors ${
+                      selected === run.runId ? 'border-signal bg-signal-soft' : 'border-hairline hover:bg-subtle'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-gray-700">{run.runId.slice(0, 8)}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLOR[run.status] ?? 'bg-gray-100 text-gray-600'}`}>{run.status}</span>
+                      <span className="text-ink">{run.runId.slice(0, 8)}</span>
+                      <span className={`px-1.5 py-0.5 rounded-sm font-medium uppercase text-[9px] ${STATUS_COLOR[run.status] ?? 'bg-subtle text-graphite'}`}>{run.status}</span>
                     </div>
-                    <div className="mt-1 text-gray-500">
+                    <div className="mt-1 text-graphite">
                       {run.input?.resourceId ?? 'unknown resource'} · {new Date(run.startedAt).toLocaleTimeString()}
                     </div>
                   </button>
@@ -106,7 +106,7 @@ export function GraphRunsPanel() {
             </ul>
           )}
         </div>
-        <div className="col-span-12 md:col-span-7 border-l border-gray-100 pl-4">
+        <div className="col-span-12 md:col-span-7 border-l border-hairline pl-4">
           <GraphVisualizer runId={selected} />
         </div>
       </div>

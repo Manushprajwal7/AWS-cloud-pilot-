@@ -27,13 +27,13 @@ type LoadState = 'loading' | 'ready' | 'error' | 'db_unavailable'
 const POLL_INTERVAL_MS = 15000
 
 const ACTION_COLOR: Record<string, string> = {
-  run_completed: 'text-blue-600',
-  run_completed_no_anomaly: 'text-gray-500',
-  run_failed: 'text-red-600',
-  remediation_applied: 'text-green-600',
-  remediation_rolled_back: 'text-purple-600',
-  remediation_rejected_by_policy: 'text-orange-600',
-  plan_rejected_by_policy: 'text-orange-600',
+  run_completed: 'text-info',
+  run_completed_no_anomaly: 'text-graphite',
+  run_failed: 'text-danger',
+  remediation_applied: 'text-ok',
+  remediation_rolled_back: 'text-signal',
+  remediation_rejected_by_policy: 'text-warn',
+  plan_rejected_by_policy: 'text-warn',
 }
 
 function summarize(event: AuditEventRow): string {
@@ -79,31 +79,34 @@ export function RecentActivity() {
   const visibleEvents = cleared ? [] : events;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
+    <div className="bg-panel border border-hairline overflow-hidden h-full flex flex-col">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-hairline">
         <div className="flex items-center gap-2">
-          <div className={`w-2.5 h-2.5 rounded-full ${state === 'ready' ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
-          <span className="font-semibold text-gray-900 text-sm">Recent Activity (real audit trail)</span>
+          <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+            {state === 'ready' && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" />}
+            <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${state === 'ready' ? 'bg-ok' : 'bg-hairline'}`} />
+          </span>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Recent Activity — audit trail</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setRefreshToken((t) => t + 1)}
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-1.5"
+            className="px-2.5 py-1 text-[11px] font-mono font-medium text-graphite border border-hairline rounded-sm hover:border-ink hover:text-ink transition-colors flex items-center gap-1.5"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className="w-3 h-3" strokeWidth={1.75} />
             Refresh
           </button>
           <button
             onClick={() => setCleared(true)}
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-1.5"
+            className="px-2.5 py-1 text-[11px] font-mono font-medium text-graphite border border-hairline rounded-sm hover:border-ink hover:text-ink transition-colors flex items-center gap-1.5"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-3 h-3" strokeWidth={1.75} />
             Clear
           </button>
         </div>
       </div>
 
-      <div className="max-h-96 overflow-y-auto bg-white font-mono text-xs">
+      <div className="max-h-96 overflow-y-auto bg-panel font-mono text-[11px]">
         {state === 'loading' ? (
           <ChartLoadingState heightClassName="h-48" />
         ) : state === 'error' ? (
@@ -114,10 +117,10 @@ export function RecentActivity() {
           <ChartEmptyState message="No graph runs have completed yet." heightClassName="h-48" />
         ) : (
           visibleEvents.map((event) => (
-            <div key={event.id} className="px-6 py-2 border-b border-gray-100 hover:bg-gray-50 transition-colors">
-              <span className="text-gray-400">{new Date(event.createdAt).toLocaleTimeString()}</span>
-              <span className={`ml-4 font-bold ${ACTION_COLOR[event.action] ?? 'text-gray-600'}`}>{event.action}</span>
-              <span className="ml-4 text-gray-700">{summarize(event)}</span>
+            <div key={event.id} className="px-5 py-2 border-b border-hairline last:border-0 hover:bg-subtle transition-colors">
+              <span className="text-graphite">{new Date(event.createdAt).toLocaleTimeString()}</span>
+              <span className={`ml-4 font-semibold ${ACTION_COLOR[event.action] ?? 'text-graphite'}`}>{event.action}</span>
+              <span className="ml-4 text-ink">{summarize(event)}</span>
             </div>
           ))
         )}

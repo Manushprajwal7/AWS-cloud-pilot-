@@ -112,5 +112,16 @@ export function createTickEngine(store: SimulationStore, options: TickEngineOpti
   }
 }
 
-/** Shared singleton bound to the shared simulationStore, used by the API routes. */
-export const tickEngine = createTickEngine(simulationStore)
+/**
+ * Shared singleton bound to the shared simulationStore, used by the API routes
+ * and started on boot by instrumentation.ts. Pinned to globalThis for the same
+ * reason simulationStore is: without it, instrumentation.ts and the route
+ * handlers each get a private engine, so /api/simulation/stop could not stop
+ * the engine that instrumentation.ts actually started, and hot reload would
+ * leak a second interval on every edit.
+ */
+const globalForTickEngine = globalThis as unknown as { tickEngine?: TickEngine }
+
+export const tickEngine: TickEngine = globalForTickEngine.tickEngine ?? createTickEngine(simulationStore)
+
+globalForTickEngine.tickEngine = tickEngine

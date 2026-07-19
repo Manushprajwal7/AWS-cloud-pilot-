@@ -42,7 +42,7 @@ function highlightHclLine(line: string): HclToken[] {
   const trimmed = line.trim();
 
   if (trimmed.startsWith('#')) {
-    return [{ text: line, className: 'text-gray-500 italic' }];
+    return [{ text: line, className: 'text-graphite italic' }];
   }
 
   const resourceMatch = line.match(/^(\s*)(resource)(\s+)("[^"]*")(\s+)("[^"]*")(\s*)(\{)?$/);
@@ -50,13 +50,13 @@ function highlightHclLine(line: string): HclToken[] {
     const [, indent, keyword, sp1, type, sp2, name, sp3, brace] = resourceMatch;
     return [
       { text: indent, className: '' },
-      { text: keyword, className: 'text-orange-400 font-semibold' },
+      { text: keyword, className: 'text-signal font-semibold' },
       { text: sp1, className: '' },
-      { text: type, className: 'text-emerald-400' },
+      { text: type, className: 'text-ok' },
       { text: sp2, className: '' },
-      { text: name, className: 'text-emerald-400' },
+      { text: name, className: 'text-ok' },
       { text: sp3, className: '' },
-      { text: brace ?? '', className: 'text-gray-300' },
+      { text: brace ?? '', className: 'text-ink' },
     ];
   }
 
@@ -67,24 +67,24 @@ function highlightHclLine(line: string): HclToken[] {
     const valueBody = braceSuffix ? braceSuffix[1] : rawValue;
     const brace = braceSuffix?.[2] ?? '';
 
-    let valueClass = 'text-gray-300';
-    if (/^".*"$/.test(valueBody)) valueClass = 'text-emerald-400';
-    else if (/^(true|false)$/.test(valueBody)) valueClass = 'text-orange-400';
-    else if (/^-?\d+(\.\d+)?$/.test(valueBody)) valueClass = 'text-orange-400';
-    else if (/^var\./.test(valueBody)) valueClass = 'text-sky-400';
+    let valueClass = 'text-ink';
+    if (/^".*"$/.test(valueBody)) valueClass = 'text-ok'
+    else if (/^(true|false)$/.test(valueBody)) valueClass = 'text-signal'
+    else if (/^-?\d+(\.\d+)?$/.test(valueBody)) valueClass = 'text-signal'
+    else if (/^var\./.test(valueBody)) valueClass = 'text-info'
 
     return [
       { text: indent, className: '' },
-      { text: key, className: 'text-sky-300' },
+      { text: key, className: 'text-info' },
       { text: sp1, className: '' },
-      { text: eq, className: 'text-gray-400' },
+      { text: eq, className: 'text-graphite' },
       { text: sp2, className: '' },
       { text: valueBody, className: valueClass },
-      { text: brace, className: 'text-gray-300' },
+      { text: brace, className: 'text-ink' },
     ];
   }
 
-  return [{ text: line, className: 'text-gray-300' }];
+  return [{ text: line, className: 'text-ink' }];
 }
 
 interface ExecutionLogLine {
@@ -145,6 +145,15 @@ export function TerraformSandbox() {
   const [resourceDetails, setResourceDetails] = useState<Record<string, unknown> | null>(null);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  function toggleFullscreen(): void {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void containerRef.current?.requestFullscreen();
+    }
+  }
 
   function pushLog(message: string, logStatus: ExecutionLogLine['status'] = 'completed'): void {
     setLogs((prev) => [...prev, { time: new Date().toLocaleTimeString(), message, status: logStatus }]);
@@ -245,7 +254,11 @@ export function TerraformSandbox() {
       const response = await fetch('/api/simulation/scenario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resourceId, scenario }),
+        // instant: true — the sandbox's next step is "Trigger Graph Run",
+        // which reads the resource right away. Without this the tick engine
+        // only ramps metrics gradually, so an immediate run can still see
+        // stale metrics/anomalies from whatever scenario ran before.
+        body: JSON.stringify({ resourceId, scenario, instant: true }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
@@ -292,7 +305,7 @@ export function TerraformSandbox() {
   const security = finalState?.securityValidation as { passed: boolean; findings: { policyName: string; severity: string; message: string }[] } | null | undefined;
   const planSummary = finalState?.planSummary as { creates: number; updates: number; deletes: number; noOps: number } | null | undefined;
   const resource = finalState?.resource as { cost: { dailyUsd: number; projectedMonthlyUsd: number }; environment: string; region: string } | null | undefined;
-  const remediationPlan = finalState?.remediationPlan as { expectedMonthlySavingsUsd: number | null; action: string } | null | undefined;
+  const remediationPlan = finalState?.remediationPlan as { expectedMonthlySavingsUsd: number | null; action: string; rationale: string } | null | undefined;
   const approvalDecision = finalState?.approvalDecision as
     | { decision: 'approved' | 'rejected'; reason: string; analysis: { riskScore: number; violations: string[] } }
     | null
@@ -316,10 +329,17 @@ export function TerraformSandbox() {
   const afterDaily = currentDaily !== null && savingsDaily !== null ? Math.max(0, currentDaily - savingsDaily) : null;
   const savingsPercent = currentDaily && savingsDaily !== null && currentDaily > 0 ? Math.round((savingsDaily / currentDaily) * 100) : null;
 
+  // A completed run with no Terraform template for its action (most commonly
+  // NO_ACTION — no anomaly found, or the anomaly type/action isn't something
+  // Terraform can remediate) is a legitimate, finished outcome, not a stuck
+  // or failed run. "Plan ready" would be actively misleading here since no
+  // plan exists; the Generated Terraform panel is correctly empty below.
+  const noRemediationNeeded = status === 'completed' && !artifact && remediationPlan?.action === 'NO_ACTION';
+
   const statusLabel: Record<RunStatus, string> = {
     idle: 'Idle',
     running: 'Running',
-    completed: 'Plan ready',
+    completed: noRemediationNeeded ? 'No action needed' : 'Plan ready',
     rejected: 'Rejected by policy',
     failed: 'Failed',
     applied: 'Applied',
@@ -327,13 +347,13 @@ export function TerraformSandbox() {
   };
 
   const statusColor: Record<RunStatus, string> = {
-    idle: 'bg-gray-400',
-    running: 'bg-orange-500',
-    completed: 'bg-green-500',
-    rejected: 'bg-red-500',
-    failed: 'bg-red-500',
-    applied: 'bg-blue-600',
-    rolled_back: 'bg-purple-600',
+    idle: 'bg-hairline',
+    running: 'bg-signal',
+    completed: 'bg-ok',
+    rejected: 'bg-danger',
+    failed: 'bg-danger',
+    applied: 'bg-info',
+    rolled_back: 'bg-warn',
   };
 
   const sandboxSteps: { command: string; label: string }[] = [
@@ -345,49 +365,52 @@ export function TerraformSandbox() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div ref={containerRef} className="space-y-4 bg-paper [&:fullscreen]:overflow-y-auto [&:fullscreen]:p-6">
       {/* Title Bar */}
-      <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-6 py-4">
+      <div className="flex items-center justify-between border border-hairline bg-panel px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-500">
-            <Package className="h-5 w-5 text-white" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-sm bg-signal">
+            <Package className="h-5 w-5 text-white" strokeWidth={1.75} />
           </div>
-          <h2 className="text-lg font-semibold text-gray-900">Agentic Sandbox - Terraform Console</h2>
+          <div>
+            <h2 className="font-display text-base font-semibold text-ink">Agentic Sandbox — Terraform Console</h2>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-graphite">LangGraph remediation runtime</p>
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className={`h-2.5 w-2.5 rounded-full ${statusColor[status]}`} />
+            <div className={`h-2 w-2 rounded-full ${statusColor[status]}`} />
             <div>
-              <div className="text-sm font-semibold text-gray-900">{statusLabel[status]}</div>
-              <div className="text-xs text-gray-500">Approval and apply run automatically — no manual approve/reject step</div>
+              <div className="text-[13px] font-semibold text-ink">{statusLabel[status]}</div>
+              <div className="text-[11px] text-graphite font-mono">Approval and apply run automatically — no manual step</div>
             </div>
           </div>
-          <Button variant="outline" size="sm" className="px-2.5">
-            <Maximize2 className="h-4 w-4 text-gray-600" />
+          <Button variant="outline" size="sm" className="px-2.5 rounded-sm border-hairline" onClick={toggleFullscreen} title="Toggle fullscreen">
+            <Maximize2 className="h-4 w-4 text-graphite" strokeWidth={1.75} />
           </Button>
         </div>
       </div>
 
       {/* Resource picker / scenario controls / issue banner */}
-      <div className="rounded-lg border border-orange-200 bg-orange-50 px-6 py-4 space-y-3">
+      <div className="border border-signal/25 bg-signal-soft px-6 py-4 space-y-3">
         <div className="flex gap-3">
           <div className="flex-shrink-0">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-100">
-              <BrainCircuit className="h-6 w-6 text-orange-500" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-panel border border-signal/25">
+              <BrainCircuit className="h-5 w-5 text-signal" strokeWidth={1.75} />
             </div>
           </div>
           <div className="flex-1">
             {finalState?.anomaly ? (
               <>
-                <p className="font-semibold text-gray-900">
+                <p className="font-semibold text-ink text-[13px]">
                   Detected {String((finalState.anomaly as { type: string }).type)} on {resourceId}.
                 </p>
-                <p className="mt-1 text-sm text-gray-700">
+                <p className="mt-1 text-[13px] text-graphite">
                   {(finalState.diagnosis as { explanation?: string } | undefined)?.explanation ?? 'Generating remediation plan...'}
                 </p>
               </>
             ) : (
-              <p className="font-semibold text-gray-900">Run the LangGraph pipeline against a resource to generate a Terraform plan.</p>
+              <p className="font-semibold text-ink text-[13px]">Run the LangGraph pipeline against a resource to generate a Terraform plan.</p>
             )}
           </div>
         </div>
@@ -397,13 +420,13 @@ export function TerraformSandbox() {
             value={resourceId}
             onChange={(e) => setResourceId(e.target.value)}
             disabled={status === 'running'}
-            className="rounded border border-orange-200 bg-white px-3 py-1.5 text-sm text-gray-900 disabled:opacity-50"
+            className="rounded-sm border border-signal/25 bg-panel px-3 py-1.5 text-[13px] font-mono text-ink disabled:opacity-50"
             placeholder="res-ec2-prod-01"
           />
           <select
             value={scenario}
             onChange={(e) => setScenario(e.target.value as (typeof SCENARIOS)[number])}
-            className="rounded border border-orange-200 bg-white px-2 py-1.5 text-sm text-gray-900"
+            className="rounded-sm border border-signal/25 bg-panel px-2 py-1.5 text-[13px] font-mono text-ink"
           >
             {SCENARIOS.map((s) => (
               <option key={s} value={s}>
@@ -411,63 +434,63 @@ export function TerraformSandbox() {
               </option>
             ))}
           </select>
-          <Button variant="outline" size="sm" onClick={startScenario}>
+          <Button variant="outline" size="sm" className="rounded-sm border-signal/25" onClick={startScenario}>
             Start Scenario
           </Button>
-          <Button variant="outline" size="sm" onClick={resetSimulation} className="gap-1.5">
-            <RotateCcw className="h-3.5 w-3.5" />
+          <Button variant="outline" size="sm" onClick={resetSimulation} className="gap-1.5 rounded-sm border-signal/25">
+            <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
             Reset Simulation
           </Button>
-          <Button variant="outline" size="sm" onClick={openResourceDetails} className="gap-1.5">
-            <FolderSearch className="h-3.5 w-3.5" />
+          <Button variant="outline" size="sm" onClick={openResourceDetails} className="gap-1.5 rounded-sm border-signal/25">
+            <FolderSearch className="h-3.5 w-3.5" strokeWidth={1.75} />
             Open Resource Details
           </Button>
         </div>
-        {actionMessage && <p className="text-xs text-gray-700">{actionMessage}</p>}
+        {actionMessage && <p className="text-[12px] text-graphite font-mono">{actionMessage}</p>}
         {resourceDetails && (
-          <pre className="max-h-48 overflow-auto rounded bg-white border border-orange-200 p-3 text-xs text-gray-800">
+          <pre className="max-h-48 overflow-auto rounded-sm bg-panel border border-signal/25 p-3 text-[11px] font-mono text-ink">
             {JSON.stringify(resourceDetails, null, 2)}
           </pre>
         )}
-        {detailsError && <p className="text-xs text-red-600">Failed to load resource details: {detailsError}</p>}
+        {detailsError && <p className="text-[12px] text-danger">Failed to load resource details: {detailsError}</p>}
       </div>
 
       <div className="grid grid-cols-12 gap-6">
         {/* Left Column - Terraform Code */}
         <div className="col-span-12 lg:col-span-7 space-y-4">
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="border border-hairline bg-panel">
             <div className="flex items-center justify-between px-4 pt-3">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-900">Generated Terraform</span>
-                <span className="text-xs text-gray-500">(Read-only)</span>
-                <Info className="h-3.5 w-3.5 text-gray-400" />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Generated Terraform</span>
+                <span className="text-[10px] text-graphite">(Read-only)</span>
+                <Info className="h-3.5 w-3.5 text-graphite" strokeWidth={1.75} />
               </div>
-              <span className="flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
-                <Sparkles className="h-3.5 w-3.5" />
-                Generated by terraformGenerationAgent
+              <span className="flex items-center gap-1.5 rounded-sm border border-signal/25 bg-signal-soft px-2.5 py-1 text-[10px] font-mono font-medium text-signal">
+                <Sparkles className="h-3 w-3" strokeWidth={1.75} />
+                terraformGenerationAgent
               </span>
             </div>
 
-            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-              <span className="text-xs text-gray-500 font-mono">{artifact ? `sha256:${artifact.checksum.slice(0, 16)}…` : 'no artifact yet'}</span>
+            <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
+              <span className="text-[11px] text-graphite font-mono">{artifact ? `sha256:${artifact.checksum.slice(0, 16)}…` : 'no artifact yet'}</span>
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5 text-gray-600"
+                className="gap-1.5 text-graphite hover:text-ink rounded-sm"
                 disabled={!artifact}
                 onClick={() => artifact && navigator.clipboard.writeText(artifact.hcl)}
               >
-                <Copy className="h-4 w-4" />
+                <Copy className="h-3.5 w-3.5" strokeWidth={1.75} />
                 Copy
               </Button>
             </div>
 
             {/* Code Editor */}
-            <div className="overflow-hidden rounded-b-lg bg-gray-900 font-mono text-sm">
+            <div className="overflow-hidden bg-subtle font-mono text-[13px] border-t border-hairline">
               <div className="max-h-80 overflow-auto">
                 {artifact ? (
                   <div className="relative flex">
-                    <div className="select-none border-r border-gray-700 bg-gray-800 px-3 py-4 text-right text-gray-500">
+                    <div className="select-none border-r border-hairline bg-panel px-3 py-4 text-right text-graphite/60">
                       {codeLines.map((_, i) => (
                         <div key={i} className="leading-6">
                           {i + 1}
@@ -490,8 +513,17 @@ export function TerraformSandbox() {
                     </pre>
                   </div>
                 ) : (
-                  <div className="p-6 text-center text-sm text-gray-500">
-                    {status === 'running' ? 'Waiting for terraformGenerationAgent to produce code…' : 'No Terraform code generated yet. Run the pipeline.'}
+                  <div className="p-6 text-center text-[13px] text-graphite">
+                    {status === 'running' ? (
+                      'Waiting for terraformGenerationAgent to produce code…'
+                    ) : noRemediationNeeded ? (
+                      <>
+                        <p className="font-medium text-ink">No Terraform change generated — planningAgent recommended NO_ACTION.</p>
+                        {remediationPlan?.rationale && <p className="mt-1">{remediationPlan.rationale}</p>}
+                      </>
+                    ) : (
+                      'No Terraform code generated yet. Run the pipeline.'
+                    )}
                   </div>
                 )}
               </div>
@@ -500,15 +532,15 @@ export function TerraformSandbox() {
 
           {/* Static security decision */}
           {security && (
-            <div className={`rounded-lg border px-6 py-4 ${security.passed ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                {security.passed ? <ShieldCheck className="h-4 w-4 text-green-600" /> : <ShieldAlert className="h-4 w-4 text-red-600" />}
+            <div className={`border-l-2 px-6 py-4 ${security.passed ? 'border-ok bg-ok-soft' : 'border-danger bg-danger-soft'}`}>
+              <div className="flex items-center gap-2 font-semibold text-ink text-[13px]">
+                {security.passed ? <ShieldCheck className="h-4 w-4 text-ok" strokeWidth={1.75} /> : <ShieldAlert className="h-4 w-4 text-danger" strokeWidth={1.75} />}
                 {security.passed ? 'Static security policies passed' : `Rejected by static security policy (${security.findings.length} finding${security.findings.length === 1 ? '' : 's'})`}
               </div>
               {!security.passed && (
-                <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                <ul className="mt-2 space-y-1 text-[12px] text-graphite">
                   {security.findings.map((finding, idx) => (
-                    <li key={idx} className="font-mono text-xs">
+                    <li key={idx} className="font-mono text-[11px]">
                       [{finding.severity}] {finding.policyName}: {finding.message}
                     </li>
                   ))}
@@ -519,16 +551,16 @@ export function TerraformSandbox() {
 
           {/* Sandbox step results */}
           {sandboxResults.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white px-6 py-4">
-              <div className="font-semibold text-gray-900 mb-3">Sandbox Execution</div>
-              <div className="flex flex-wrap gap-3">
+            <div className="border border-hairline bg-panel px-6 py-4">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-graphite mb-3">Sandbox Execution</div>
+              <div className="flex flex-wrap gap-2">
                 {sandboxSteps.map(({ command, label }) => {
                   const result = lastResultFor(command);
                   if (!result) return null;
                   const ok = result.exitCode === 0;
                   return (
-                    <div key={command} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                    <div key={command} className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[11px] font-mono font-medium ${ok ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'}`}>
+                      {ok ? <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> : <XCircle className="h-3.5 w-3.5" strokeWidth={1.75} />}
                       terraform {label} (exit {result.exitCode ?? 'n/a'}{result.timedOut ? ', timed out' : ''})
                     </div>
                   );
@@ -539,46 +571,46 @@ export function TerraformSandbox() {
 
           {/* Self-correction summary */}
           {correctionAttempts > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-6 py-4">
-              <div className="font-semibold text-gray-900">
+            <div className="border-l-2 border-warn bg-warn-soft px-6 py-4">
+              <div className="font-semibold text-ink text-[13px]">
                 selfCorrectionAgent ran {correctionAttempts} time{correctionAttempts === 1 ? '' : 's'} (max 3 per run)
               </div>
-              <p className="mt-1 text-sm text-gray-700">See the execution log below for each attempt&apos;s strategy, hashes, and result.</p>
+              <p className="mt-1 text-[12px] text-graphite">See the execution log below for each attempt&apos;s strategy, hashes, and result.</p>
             </div>
           )}
 
           {/* Plan policy / auto-approval decision */}
           {approvalDecision && (
-            <div className={`rounded-lg border px-6 py-4 ${approvalDecision.decision === 'approved' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                {approvalDecision.decision === 'approved' ? <ShieldCheck className="h-4 w-4 text-green-600" /> : <ShieldAlert className="h-4 w-4 text-red-600" />}
+            <div className={`border-l-2 px-6 py-4 ${approvalDecision.decision === 'approved' ? 'border-ok bg-ok-soft' : 'border-danger bg-danger-soft'}`}>
+              <div className="flex items-center gap-2 font-semibold text-ink text-[13px]">
+                {approvalDecision.decision === 'approved' ? <ShieldCheck className="h-4 w-4 text-ok" strokeWidth={1.75} /> : <ShieldAlert className="h-4 w-4 text-danger" strokeWidth={1.75} />}
                 autoApprovalWorker: {approvalDecision.decision} (risk score {approvalDecision.analysis.riskScore}/100)
               </div>
-              <p className="mt-1 text-sm text-gray-700 font-mono text-xs">{approvalDecision.reason}</p>
+              <p className="mt-1 text-graphite font-mono text-[11px]">{approvalDecision.reason}</p>
               {approvalDecision.analysis.violations.length > 0 && (
-                <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                <ul className="mt-2 space-y-1 text-[12px] text-graphite">
                   {approvalDecision.analysis.violations.map((v, idx) => (
-                    <li key={idx} className="font-mono text-xs">
+                    <li key={idx} className="font-mono text-[11px]">
                       • {v}
                     </li>
                   ))}
                 </ul>
               )}
-              {applySucceeded && <p className="mt-2 text-sm font-semibold text-blue-700">terraformApplyWorker: apply succeeded</p>}
+              {applySucceeded && <p className="mt-2 text-[12px] font-semibold text-info">terraformApplyWorker: apply succeeded</p>}
             </div>
           )}
 
           {/* Verification result */}
           {verificationResult && (
-            <div className={`rounded-lg border px-6 py-4 ${verificationResult.passed ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                {verificationResult.passed ? <ShieldCheck className="h-4 w-4 text-green-600" /> : <ShieldAlert className="h-4 w-4 text-red-600" />}
+            <div className={`border-l-2 px-6 py-4 ${verificationResult.passed ? 'border-ok bg-ok-soft' : 'border-danger bg-danger-soft'}`}>
+              <div className="flex items-center gap-2 font-semibold text-ink text-[13px]">
+                {verificationResult.passed ? <ShieldCheck className="h-4 w-4 text-ok" strokeWidth={1.75} /> : <ShieldAlert className="h-4 w-4 text-danger" strokeWidth={1.75} />}
                 verificationWorker: {verificationResult.passed ? 'all checks passed' : 'one or more checks failed'}
               </div>
-              <ul className="mt-2 space-y-1 text-sm text-gray-700">
+              <ul className="mt-2 space-y-1 text-[12px] text-graphite">
                 {verificationResult.checks.map((check, idx) => (
-                  <li key={idx} className={`font-mono text-xs flex items-center gap-1.5 ${check.passed ? 'text-gray-700' : 'text-red-700'}`}>
-                    {check.passed ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 flex-shrink-0" /> : <XCircle className="h-3.5 w-3.5 text-red-600 flex-shrink-0" />}
+                  <li key={idx} className={`font-mono text-[11px] flex items-center gap-1.5 ${check.passed ? 'text-graphite' : 'text-danger'}`}>
+                    {check.passed ? <CheckCircle2 className="h-3.5 w-3.5 text-ok flex-shrink-0" strokeWidth={1.75} /> : <XCircle className="h-3.5 w-3.5 text-danger flex-shrink-0" strokeWidth={1.75} />}
                     {check.name}: {check.details}
                   </li>
                 ))}
@@ -588,53 +620,53 @@ export function TerraformSandbox() {
 
           {/* Rollback result */}
           {rollbackResult?.rolledBack && (
-            <div className="rounded-lg border border-purple-200 bg-purple-50 px-6 py-4">
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                <RotateCcw className="h-4 w-4 text-purple-600" />
+            <div className="border-l-2 border-warn bg-warn-soft px-6 py-4">
+              <div className="flex items-center gap-2 font-semibold text-ink text-[13px]">
+                <RotateCcw className="h-4 w-4 text-warn" strokeWidth={1.75} />
                 rollbackWorker: restored the exact pre-apply simulation snapshot
               </div>
-              <p className="mt-1 text-sm text-gray-700 font-mono text-xs">{rollbackResult.reason}</p>
+              <p className="mt-1 text-graphite font-mono text-[11px]">{rollbackResult.reason}</p>
             </div>
           )}
 
           {/* Metadata Footer */}
-          <div className="rounded-lg border border-gray-200 bg-white px-6 py-4">
-            <div className="grid grid-cols-4 gap-4 text-xs">
+          <div className="border border-hairline bg-panel px-6 py-4">
+            <div className="grid grid-cols-4 gap-4 text-[11px]">
               <div>
-                <div className="flex items-center gap-1.5 font-semibold text-gray-500">
-                  <ClipboardList className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-graphite">
+                  <ClipboardList className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Plan
                 </div>
-                <div className="mt-1 font-medium text-blue-600">
+                <div className="mt-1 font-mono font-medium text-info">
                   {planSummary ? `+${planSummary.creates} ~${planSummary.updates} -${planSummary.deletes}` : '—'}
                 </div>
               </div>
               <div>
-                <div className="flex items-center gap-1.5 font-semibold text-gray-500">
-                  <GitBranch className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-graphite">
+                  <GitBranch className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Environment
                 </div>
                 <div className="mt-1">
                   {resource ? (
-                    <span className="inline-block rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-700">{resource.environment}</span>
+                    <span className="inline-block border border-hairline bg-subtle px-2 py-0.5 text-ink font-mono">{resource.environment}</span>
                   ) : (
                     '—'
                   )}
                 </div>
               </div>
               <div>
-                <div className="flex items-center gap-1.5 font-semibold text-gray-500">
-                  <Globe className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-graphite">
+                  <Globe className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Region
                 </div>
-                <div className="mt-1 font-medium text-blue-600">{resource?.region ?? '—'}</div>
+                <div className="mt-1 font-mono font-medium text-info">{resource?.region ?? '—'}</div>
               </div>
               <div>
-                <div className="flex items-center gap-1.5 font-semibold text-gray-500">
-                  <Clock className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-graphite">
+                  <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Completed
                 </div>
-                <div className="mt-1 font-medium text-gray-900">{completedAt ?? '—'}</div>
+                <div className="mt-1 font-mono font-medium text-ink">{completedAt ?? '—'}</div>
               </div>
             </div>
           </div>
@@ -644,104 +676,107 @@ export function TerraformSandbox() {
         <div className="col-span-12 lg:col-span-5 space-y-4">
           {/* Action Buttons */}
           <div className="grid grid-cols-2 gap-3">
-            <Button onClick={runSandbox} disabled={status === 'running'} className="gap-2 bg-orange-500 hover:bg-orange-600 text-white">
-              <Play className="h-4 w-4" />
+            <Button onClick={runSandbox} disabled={status === 'running'} className="gap-2 bg-signal hover:bg-signal/90 text-white rounded-sm uppercase text-[12px] tracking-wide font-mono">
+              <Play className="h-3.5 w-3.5" strokeWidth={1.75} />
               Trigger Graph Run
             </Button>
-            <Button onClick={stopSandbox} disabled={status !== 'running'} className="gap-2 bg-gray-400 hover:bg-gray-500 text-white">
-              <Square className="h-4 w-4" />
+            <Button onClick={stopSandbox} disabled={status !== 'running'} className="gap-2 bg-panel border border-hairline hover:bg-subtle text-ink rounded-sm uppercase text-[12px] tracking-wide font-mono">
+              <Square className="h-3.5 w-3.5" strokeWidth={1.75} />
               Stop
             </Button>
           </div>
 
           {errorMessage && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
+            <div className="border-l-2 border-danger bg-danger-soft px-4 py-3 text-[13px] text-danger">{errorMessage}</div>
           )}
 
           {/* Graph visualizer */}
-          <div className="rounded-lg border border-gray-200 bg-white p-5">
-            <h3 className="font-semibold text-gray-900 mb-3">Graph Execution</h3>
+          <div className="border border-hairline bg-panel p-5">
+            <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite mb-3">Graph Execution</h3>
             <GraphVisualizer runId={runId} />
           </div>
 
           {/* Cost Impact Section */}
-          <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
+          <div className="border border-hairline bg-panel p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">Cost Impact</h3>
-                <span className="text-xs text-gray-500">({remediationPlan ? remediationPlan.action : 'no plan yet'})</span>
-                <Info className="h-3.5 w-3.5 text-gray-400" />
+                <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite">Cost Impact</h3>
+                <span className="text-[11px] text-graphite font-mono">({remediationPlan ? remediationPlan.action : 'no plan yet'})</span>
+                <Info className="h-3.5 w-3.5 text-graphite" strokeWidth={1.75} />
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex-1 rounded-lg border border-red-200 bg-red-50 p-4">
-                <div className="text-xs font-semibold text-gray-600">Current</div>
+            <div className="flex items-center gap-px bg-hairline border border-hairline">
+              <div className="flex-1 bg-danger-soft p-4">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-graphite">Current</div>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-red-600">{currentDaily !== null ? `$${currentDaily.toFixed(0)}` : '—'}</span>
-                  <span className="text-sm text-gray-600">/day</span>
+                  <span className="text-xl font-display font-semibold text-danger tabular-nums">{currentDaily !== null ? `$${currentDaily.toFixed(0)}` : '—'}</span>
+                  <span className="text-[12px] text-graphite font-mono">/day</span>
                 </div>
               </div>
 
-              <div className="flex-1 rounded-lg border border-green-200 bg-green-50 p-4">
-                <div className="text-xs font-semibold text-gray-600">After (Projected)</div>
+              <div className="flex-1 bg-ok-soft p-4">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-graphite">After (Projected)</div>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-green-600">{afterDaily !== null ? `$${afterDaily.toFixed(0)}` : '—'}</span>
-                  <span className="text-sm text-gray-600">/day</span>
+                  <span className="text-xl font-display font-semibold text-ok tabular-nums">{afterDaily !== null ? `$${afterDaily.toFixed(0)}` : '—'}</span>
+                  <span className="text-[12px] text-graphite font-mono">/day</span>
                 </div>
               </div>
 
-              <div className="flex-1 rounded-lg border border-orange-200 bg-orange-50 p-4">
-                <div className="text-xs font-semibold text-gray-600">Projected Savings</div>
+              <div className="flex-1 bg-signal-soft p-4">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-graphite">Projected Savings</div>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-orange-600">{savingsDaily !== null ? `$${savingsDaily.toFixed(0)}` : '—'}</span>
-                  <span className="text-sm text-gray-600">/day</span>
+                  <span className="text-xl font-display font-semibold text-signal tabular-nums">{savingsDaily !== null ? `$${savingsDaily.toFixed(0)}` : '—'}</span>
+                  <span className="text-[12px] text-graphite font-mono">/day</span>
                 </div>
-                <div className="mt-1 text-sm text-gray-600">{savingsPercent !== null ? `(${savingsPercent}%)` : ''}</div>
+                <div className="mt-1 text-[11px] text-graphite font-mono">{savingsPercent !== null ? `(${savingsPercent}%)` : ''}</div>
               </div>
             </div>
 
             {savingsPercent !== null && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900">Cost Reduction</span>
-                  <span className="text-sm font-bold text-orange-600">{savingsPercent}%</span>
+                  <span className="text-[12px] font-semibold text-ink">Cost Reduction</span>
+                  <span className="text-[12px] font-mono font-bold text-signal">{savingsPercent}%</span>
                 </div>
-                <div className="h-2.5 w-full rounded-full bg-gray-200">
-                  <div className="h-2.5 rounded-full bg-gradient-to-r from-orange-400 to-orange-500" style={{ width: `${Math.min(100, savingsPercent)}%` }} />
+                <div className="h-1.5 w-full bg-hairline">
+                  <div className="h-1.5 bg-signal" style={{ width: `${Math.min(100, savingsPercent)}%` }} />
                 </div>
               </div>
             )}
 
             {realizedSavingsUsd !== null && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
-                <span className="font-semibold text-gray-900">Realized monthly savings: </span>
-                <span className="font-bold text-blue-700">${realizedSavingsUsd.toFixed(2)}</span>
+              <div className="border-l-2 border-info bg-info-soft p-3 text-[13px]">
+                <span className="font-semibold text-ink">Realized monthly savings: </span>
+                <span className="font-mono font-bold text-info">${realizedSavingsUsd.toFixed(2)}</span>
               </div>
             )}
           </div>
 
           {/* Execution Logs */}
-          <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
+          <div className="border border-hairline bg-panel p-5 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-orange-500' : 'bg-green-500'}`} />
-                <span className="font-semibold text-gray-900">Execution Logs</span>
-                <span className="text-xs text-gray-500">(real terraform stdout/stderr)</span>
+                <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                  {status === 'running' && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal opacity-60" />}
+                  <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-signal' : 'bg-ok'}`} />
+                </span>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Execution Logs</span>
+                <span className="text-[10px] text-graphite">(real terraform stdout/stderr)</span>
               </div>
-              <button onClick={() => setLogs([])} className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+              <button onClick={() => setLogs([])} className="flex items-center gap-1.5 border border-hairline px-2.5 py-1 text-[11px] font-mono font-medium text-graphite hover:border-ink hover:text-ink transition-colors">
                 Clear Logs
               </button>
             </div>
 
-            <div className="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-gray-900 p-3 font-mono text-xs">
+            <div className="max-h-64 overflow-auto border border-hairline bg-subtle p-3 font-mono text-[11px]">
               {logs.length === 0 ? (
-                <div className="py-6 text-center text-gray-500">No logs yet.</div>
+                <div className="py-6 text-center text-graphite">No logs yet.</div>
               ) : (
                 logs.map((log, idx) => (
-                  <div key={idx} className="flex gap-2 py-1 text-gray-400">
-                    <span className="flex-shrink-0 text-gray-600">{log.time}</span>
-                    <span className={log.status === 'error' ? 'text-red-400' : log.status === 'in-progress' ? 'text-gray-300' : 'text-green-400'}>{log.message}</span>
+                  <div key={idx} className="flex gap-2 py-1">
+                    <span className="flex-shrink-0 text-graphite">{log.time}</span>
+                    <span className={log.status === 'error' ? 'text-danger' : log.status === 'in-progress' ? 'text-ink' : 'text-ok'}>{log.message}</span>
                   </div>
                 ))
               )}

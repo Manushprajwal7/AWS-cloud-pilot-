@@ -90,21 +90,50 @@ describe('lib/simulation/scenario-runners', () => {
   })
 
   describe('memory leak growth', () => {
-    it('memoryPercent climbs slowly across ticks and stays below the 100% ceiling', () => {
-      const target = SCENARIO_DEFINITIONS.MEMORY_LEAK.targetMetrics.memoryPercent
+    it('memoryPercent climbs gradually across ticks and saturates just below 100%', () => {
       const after1 = stepResourceMetrics(BASELINE, 'MEMORY_LEAK', { random: fixedRandom(0.5), tickIntervalMs: 5000 })
+      const after10 = tickN(BASELINE, 'MEMORY_LEAK', 10)
       const after30 = tickN(BASELINE, 'MEMORY_LEAK', 30)
-      const after80 = tickN(BASELINE, 'MEMORY_LEAK', 80)
 
-      // Slow approach rate: one tick should move only modestly, not most of the way there.
+      // One tick moves it modestly, not most of the way there.
       expect(after1.memoryPercent).toBeGreaterThan(BASELINE.memoryPercent)
       expect(after1.memoryPercent).toBeLessThan(BASELINE.memoryPercent + 10)
 
-      // Monotonic progress toward the target the longer the leak runs.
-      expect(after30.memoryPercent).toBeGreaterThan(after1.memoryPercent)
-      expect(after80.memoryPercent).toBeGreaterThan(after30.memoryPercent)
-      expect(after80.memoryPercent).toBeCloseTo(target, -1)
-      expect(after80.memoryPercent).toBeLessThanOrEqual(99)
+      expect(after10.memoryPercent).toBeGreaterThan(after1.memoryPercent)
+
+      // A leak climbs to saturation rather than settling at a comfortable
+      // steady state, but still stops short of pegging the gauge at 100%.
+      expect(after30.memoryPercent).toBeCloseTo(99, 0)
+      expect(after30.memoryPercent).toBeLessThanOrEqual(99)
+    })
+
+    /**
+     * Regression test for a bug where MEMORY_LEAK was undetectable. When this
+     * axis eased toward its target like every other metric, memory only
+     * cleared memoryLeakRule's 85% threshold once it was already asymptotically
+     * close to the ceiling — at which point a 5-reading window moved it barely
+     * a point or two, so the rule's companion "+10 across the window"
+     * requirement could never also be true. The two conditions were mutually
+     * exclusive and the rule could never fire, no matter how long a leak ran.
+     */
+    it('produces a window that satisfies memoryLeakRule: above 85% while still rising by 10+ over 5 readings', () => {
+      const RULE_THRESHOLD = 85
+      const RULE_MIN_INCREASE = 10
+      const RULE_WINDOW = 5
+
+      const series: number[] = [BASELINE.memoryPercent]
+      let metrics = BASELINE
+      for (let i = 0; i < 40; i++) {
+        metrics = stepResourceMetrics(metrics, 'MEMORY_LEAK', { random: fixedRandom(0.5), tickIntervalMs: 5000 })
+        series.push(metrics.memoryPercent)
+      }
+
+      const firingWindows = series.filter((current, i) => {
+        if (i < RULE_WINDOW) return false
+        return current >= RULE_THRESHOLD && current - series[i - RULE_WINDOW] >= RULE_MIN_INCREASE
+      })
+
+      expect(firingWindows.length).toBeGreaterThan(0)
     })
 
     it('never exceeds 100% even under many ticks with maximal jitter', () => {

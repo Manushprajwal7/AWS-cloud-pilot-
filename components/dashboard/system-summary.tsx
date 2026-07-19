@@ -86,52 +86,52 @@ export function SystemSummary() {
   const onlineWorkers = systemStatus.workers.filter((w) => w.online).length
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-hairline border border-hairline">
+      <div className="bg-panel p-4">
         <div className="flex items-center gap-2 mb-2">
-          <PiggyBank className="w-4 h-4 text-green-600" />
-          <span className="text-sm text-gray-600">Potential Monthly Savings</span>
+          <PiggyBank className="w-3.5 h-3.5 text-ok" strokeWidth={1.75} />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Potential Monthly Savings</span>
         </div>
-        <p className="text-xl font-bold text-gray-900">{summary.dbAvailable ? formatUsd(summary.potentialMonthlySavingsUsd) : 'DB unavailable'}</p>
+        <p className="text-lg font-display font-semibold text-ink tabular-nums">{summary.dbAvailable ? formatUsd(summary.potentialMonthlySavingsUsd) : 'DB unavailable'}</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="bg-panel p-4">
         <div className="flex items-center gap-2 mb-2">
-          <DollarSign className="w-4 h-4 text-blue-600" />
-          <span className="text-sm text-gray-600">Realized Savings</span>
+          <DollarSign className="w-3.5 h-3.5 text-info" strokeWidth={1.75} />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Realized Savings</span>
         </div>
-        <p className="text-xl font-bold text-gray-900">{summary.dbAvailable ? formatUsd(summary.realizedMonthlySavingsUsd) : 'DB unavailable'}</p>
+        <p className="text-lg font-display font-semibold text-ink tabular-nums">{summary.dbAvailable ? formatUsd(summary.realizedMonthlySavingsUsd) : 'DB unavailable'}</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="bg-panel p-4">
         <div className="flex items-center gap-2 mb-2">
-          <PlayCircle className="w-4 h-4 text-orange-600" />
-          <span className="text-sm text-gray-600">Graph Runs</span>
+          <PlayCircle className="w-3.5 h-3.5 text-signal" strokeWidth={1.75} />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Graph Runs</span>
         </div>
         {summary.dbAvailable ? (
-          <p className="text-sm text-gray-900">
-            <span className="font-bold text-orange-600">{summary.activeGraphRuns}</span> active ·{' '}
-            <span className="font-bold text-red-600">{summary.failedGraphRuns}</span> failed ·{' '}
-            <span className="font-bold text-green-600">{summary.completedGraphRuns}</span> completed
+          <p className="text-[13px] text-ink font-mono">
+            <span className="font-semibold text-signal">{summary.activeGraphRuns}</span> active ·{' '}
+            <span className="font-semibold text-danger">{summary.failedGraphRuns}</span> failed ·{' '}
+            <span className="font-semibold text-ok">{summary.completedGraphRuns}</span> completed
           </p>
         ) : (
-          <p className="text-sm text-gray-500">Database unavailable</p>
+          <p className="text-[13px] text-graphite">Database unavailable</p>
         )}
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="bg-panel p-4">
         <div className="flex items-center gap-2 mb-2">
-          <Server className="w-4 h-4 text-purple-600" />
-          <span className="text-sm text-gray-600">Workers</span>
+          <Server className="w-3.5 h-3.5 text-graphite" strokeWidth={1.75} />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Workers</span>
         </div>
         {systemStatus.redisAvailable ? (
           <>
-            <p className="text-sm text-gray-900">
-              <span className="font-bold text-green-600">{onlineWorkers}</span> / {systemStatus.workers.length} online
+            <p className="text-[13px] text-ink font-mono">
+              <span className="font-semibold text-ok">{onlineWorkers}</span> / {systemStatus.workers.length} online
             </p>
-            <div className="mt-1 flex flex-wrap gap-1">
+            <div className="mt-1.5 flex flex-wrap gap-1">
               {systemStatus.workers.map((w) => (
-                <span key={w.name} className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${w.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                <span key={w.name} className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-mono font-medium ${w.online ? 'bg-ok-soft text-ok' : 'bg-subtle text-graphite'}`}>
                   {w.online ? <ListChecks className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
                   {w.name}
                 </span>
@@ -139,26 +139,26 @@ export function SystemSummary() {
             </div>
           </>
         ) : (
-          <p className="text-sm text-gray-500">Redis unavailable</p>
+          <p className="text-[13px] text-graphite">Redis unavailable</p>
         )}
       </div>
 
       {systemStatus.redisAvailable && (
-        <div className="col-span-2 md:col-span-4 bg-white rounded-lg border border-gray-200 p-4">
+        <div className="col-span-2 md:col-span-4 bg-panel p-4">
           <div className="flex items-center gap-2 mb-2">
-            <ListChecks className="w-4 h-4 text-blue-600" />
-            <span className="text-sm text-gray-600">Queue Status</span>
-            <span className="text-xs text-gray-400 ml-auto">
+            <ListChecks className="w-3.5 h-3.5 text-info" strokeWidth={1.75} />
+            <span className="text-[10px] font-mono uppercase tracking-wider text-graphite">Queue Status</span>
+            <span className="text-[11px] font-mono text-graphite ml-auto">
               {totalQueueDepth} queued/active · {totalFailedJobs} failed
             </span>
           </div>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
             {Object.entries(systemStatus.queues).map(([name, counts]) => (
-              <div key={name} className="rounded border border-gray-100 p-2">
-                <div className="font-medium text-gray-700 truncate" title={name}>
+              <div key={name} className="border border-hairline p-2">
+                <div className="font-medium text-ink truncate font-mono text-[11px]" title={name}>
                   {name.replace('cloudpilot-', '')}
                 </div>
-                <div className="text-gray-500">
+                <div className="text-graphite text-[11px] font-mono">
                   {counts.waiting + counts.active} active · {counts.failed} failed
                 </div>
               </div>

@@ -21,9 +21,23 @@ export type GraphRunEvent =
 
 type Listener = (event: GraphRunEvent) => void
 
-const listenersByRun = new Map<string, Set<Listener>>()
-const eventBufferByRun = new Map<string, GraphRunEvent[]>()
-const runPromises = new Map<string, Promise<GraphState>>()
+/**
+ * Pinned to globalThis for the same reason simulationStore, tickEngine and
+ * the Prisma client are: Next dev/HMR hands separate route handlers their own
+ * copy of this module, so POST /api/graph/run would broadcast into one set of
+ * maps while GET /api/graph/runs/:runId/stream subscribed to another — the
+ * stream then saw an empty buffer, replayed nothing, and heartbeat'd forever
+ * on a run that had already finished. One registry per process fixes it.
+ */
+const globalForRunRegistry = globalThis as unknown as {
+  graphRunListeners?: Map<string, Set<Listener>>
+  graphRunEventBuffers?: Map<string, GraphRunEvent[]>
+  graphRunPromises?: Map<string, Promise<GraphState>>
+}
+
+const listenersByRun = (globalForRunRegistry.graphRunListeners ??= new Map<string, Set<Listener>>())
+const eventBufferByRun = (globalForRunRegistry.graphRunEventBuffers ??= new Map<string, GraphRunEvent[]>())
+const runPromises = (globalForRunRegistry.graphRunPromises ??= new Map<string, Promise<GraphState>>())
 
 const BUFFER_LIMIT = 200
 

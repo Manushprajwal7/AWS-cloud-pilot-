@@ -54,9 +54,9 @@ export function TelemetryPanel() {
   const chartData = toChartPoints(history)
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-semibold text-gray-900 text-sm">Live Telemetry</h3>
+    <div className="bg-panel border border-hairline">
+      <div className="px-5 py-3.5 border-b border-hairline flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite">Live Telemetry</h3>
         <div className="flex items-center gap-3">
           <ConnectionStatusBadge status={status} onReconnect={reconnect} />
           <div className="flex items-center gap-1.5">
@@ -64,37 +64,37 @@ export function TelemetryPanel() {
               type="button"
               onClick={() => runAction(engineRunning ? 'stop' : 'start')}
               disabled={actionPending !== null || status === 'disconnected'}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-1.5 text-[11px] font-mono font-medium px-2.5 py-1 border border-hairline rounded-sm hover:bg-subtle hover:border-ink disabled:opacity-50 transition-colors"
             >
-              {engineRunning ? <Square className="w-3.5 h-3.5" aria-hidden="true" /> : <Play className="w-3.5 h-3.5" aria-hidden="true" />}
+              {engineRunning ? <Square className="w-3 h-3" aria-hidden="true" /> : <Play className="w-3 h-3" aria-hidden="true" />}
               {engineRunning ? 'Stop simulation' : 'Start simulation'}
             </button>
             <button
               type="button"
               onClick={() => runAction('reset')}
               disabled={actionPending !== null || status === 'disconnected'}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-1.5 text-[11px] font-mono font-medium px-2.5 py-1 border border-hairline rounded-sm hover:bg-subtle hover:border-ink disabled:opacity-50 transition-colors"
             >
-              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              <RotateCcw className="w-3 h-3" aria-hidden="true" />
               Reset
             </button>
           </div>
         </div>
       </div>
 
-      <div className="p-6 space-y-6">
+      <div className="p-5 space-y-5">
         <ResourceHealthCards selectedId={effectiveSelectedId} onSelect={setSelectedId} />
 
         {resources.length > 0 && (
           <div className="flex items-center gap-3">
-            <label htmlFor="telemetry-resource-select" className="text-sm font-medium text-gray-700">
+            <label htmlFor="telemetry-resource-select" className="text-[13px] font-medium text-ink">
               Viewing telemetry for
             </label>
             <select
               id="telemetry-resource-select"
               value={effectiveSelectedId ?? ''}
               onChange={(e) => setSelectedId(e.target.value)}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="text-[13px] font-mono border border-hairline rounded-sm px-3 py-1.5 bg-panel text-ink focus:outline-none focus:ring-1 focus:ring-signal"
             >
               {resources.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -103,7 +103,7 @@ export function TelemetryPanel() {
               ))}
             </select>
             {resource && (
-              <span className="text-xs text-gray-500">
+              <span className="text-[11px] font-mono text-graphite">
                 Last updated {new Date(resource.updatedAt).toLocaleTimeString(undefined, { hour12: false })}
               </span>
             )}
@@ -118,7 +118,7 @@ export function TelemetryPanel() {
               title="CPU Utilization"
               unit="%"
               data={chartData}
-              series={[{ key: 'cpuPercent', label: 'CPU', color: '#f97316' }]}
+              series={[{ key: 'cpuPercent', label: 'CPU', color: '#FF9900' }]}
               status={metricsStatus}
               isLoading={isLoading}
               yDomain={[0, 100]}
@@ -128,7 +128,7 @@ export function TelemetryPanel() {
               title="Memory Utilization"
               unit="%"
               data={chartData}
-              series={[{ key: 'memoryPercent', label: 'Memory', color: '#3b82f6' }]}
+              series={[{ key: 'memoryPercent', label: 'Memory', color: '#146EB4' }]}
               status={metricsStatus}
               isLoading={isLoading}
               yDomain={[0, 100]}
@@ -139,8 +139,8 @@ export function TelemetryPanel() {
               unit=" Mb"
               data={chartData}
               series={[
-                { key: 'networkInMb', label: 'In', color: '#10b981' },
-                { key: 'networkOutMb', label: 'Out', color: '#6366f1' },
+                { key: 'networkInMb', label: 'In', color: '#037F51' },
+                { key: 'networkOutMb', label: 'Out', color: '#232F3E' },
               ]}
               status={metricsStatus}
               isLoading={isLoading}
@@ -150,7 +150,7 @@ export function TelemetryPanel() {
               title="Requests"
               unit=" req/min"
               data={chartData}
-              series={[{ key: 'requestsPerMinute', label: 'Requests', color: '#8b5cf6' }]}
+              series={[{ key: 'requestsPerMinute', label: 'Requests', color: '#146EB4' }]}
               status={metricsStatus}
               isLoading={isLoading}
               onReconnect={reconnect}
@@ -159,7 +159,7 @@ export function TelemetryPanel() {
               title="Latency"
               unit=" ms"
               data={chartData}
-              series={[{ key: 'latencyMs', label: 'Latency', color: '#ec4899' }]}
+              series={[{ key: 'latencyMs', label: 'Latency', color: '#B36A00' }]}
               status={metricsStatus}
               isLoading={isLoading}
               onReconnect={reconnect}
@@ -168,21 +168,11 @@ export function TelemetryPanel() {
               title="Error Rate"
               unit="%"
               data={chartData}
-              series={[{ key: 'errorRatePercent', label: 'Error Rate', color: '#ef4444' }]}
+              series={[{ key: 'errorRatePercent', label: 'Error Rate', color: '#D13212' }]}
               status={metricsStatus}
               isLoading={isLoading}
               yDomain={[0, 'auto']}
               onReconnect={reconnect}
-            />
-            <MetricChart
-              title="Cost"
-              unit="/hr"
-              data={chartData}
-              series={[{ key: 'hourlyUsd', label: 'Hourly cost', color: '#f59e0b' }]}
-              status={metricsStatus}
-              isLoading={isLoading}
-              onReconnect={reconnect}
-              valueFormatter={(v) => `$${v.toFixed(4)}`}
             />
           </div>
         )}

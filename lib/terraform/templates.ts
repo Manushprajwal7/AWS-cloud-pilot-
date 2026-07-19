@@ -12,7 +12,7 @@
  */
 
 import type { SimulatedCloudResource } from '@/lib/simulation/types'
-import { recommendRightsizing, recommendScaleIn, type RemediationAction } from '@/lib/financial/rightsizing'
+import { recommendRightsizing, recommendScaleIn, recommendScaleOut, type RemediationAction } from '@/lib/financial/rightsizing'
 import { requiredProvidersBlock } from './provider-allowlist'
 import { RESOURCE_TYPE_BY_SERVICE, type GeneratedTerraform, type TerraformResourceType } from './types'
 
@@ -27,8 +27,16 @@ function resourceLocalName(resource: SimulatedCloudResource): string {
   return resource.id.replace(/[^a-zA-Z0-9_]/g, '_')
 }
 
+/**
+ * `terraform fmt` aligns every `=` in a contiguous block of assignments to
+ * the widest key — generating anything less means terraformFormatWorker
+ * fails on the very first attempt of every single run and has to burn a
+ * selfCorrectionAgent cycle just to reformat whitespace, never a real fix.
+ */
 function tagsBlock(tags: Record<string, string>): string {
-  const lines = Object.entries(tags).map(([key, value]) => `    "${key}" = "${value}"`)
+  const entries = Object.entries(tags).map(([key, value]) => [`"${key}"`, `"${value}"`] as const)
+  const keyWidth = Math.max(...entries.map(([key]) => key.length))
+  const lines = entries.map(([key, value]) => `    ${key.padEnd(keyWidth)} = ${value}`)
   return `  tags = {\n${lines.join('\n')}\n  }`
 }
 
@@ -109,6 +117,26 @@ ${attributes.join('\n')}
   return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'SCALE_IN' }
 }
 
+function generateScaleOut(resource: SimulatedCloudResource): GeneratedTerraform {
+  const recommendation = recommendScaleOut(resource)
+  if (!recommendation) {
+    throw new UnsupportedRemediationError('SCALE_OUT', resource.service)
+  }
+
+  const type = RESOURCE_TYPE_BY_SERVICE[resource.service]
+  const name = resourceLocalName(resource)
+  const attributes = baseAttributes(resource)
+    .filter((line) => !line.trim().startsWith('desired_count'))
+    .concat([`  desired_count = ${recommendation.recommendedCapacity}`])
+    .concat(tagsBlock(baseTags(resource)))
+
+  const hcl = `resource "${type}" "${name}" {
+${attributes.join('\n')}
+}`
+
+  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'SCALE_OUT' }
+}
+
 function generateScheduleOrStop(resource: SimulatedCloudResource, action: 'STOP' | 'SCHEDULE'): GeneratedTerraform {
   const type = RESOURCE_TYPE_BY_SERVICE[resource.service]
   const name = resourceLocalName(resource)
@@ -120,10 +148,9 @@ function generateScheduleOrStop(resource: SimulatedCloudResource, action: 'STOP'
 }
 
 /**
- * NO_ACTION and SCALE_OUT have no defined Terraform template — SCALE_OUT is
- * a capacity increase (not a cost-remediation the sandbox should plan
- * unattended) and NO_ACTION has nothing to change. Both throw so the graph
- * node fails loudly rather than silently emitting a no-op plan.
+ * NO_ACTION has no defined Terraform template — there's nothing to change.
+ * It throws so the graph node fails loudly rather than silently emitting a
+ * no-op plan.
  */
 export function generateTerraformForAction(resource: SimulatedCloudResource, action: RemediationAction): GeneratedTerraform {
   switch (action) {
@@ -131,11 +158,12 @@ export function generateTerraformForAction(resource: SimulatedCloudResource, act
       return generateRightsize(resource)
     case 'SCALE_IN':
       return generateScaleIn(resource)
+    case 'SCALE_OUT':
+      return generateScaleOut(resource)
     case 'STOP':
       return generateScheduleOrStop(resource, 'STOP')
     case 'SCHEDULE':
       return generateScheduleOrStop(resource, 'SCHEDULE')
-    case 'SCALE_OUT':
     case 'NO_ACTION':
       throw new UnsupportedRemediationError(action, resource.service)
   }

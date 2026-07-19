@@ -168,6 +168,17 @@ function disconnect(): void {
   }
 }
 
+/**
+ * Apply the running flag returned by /api/simulation/start|stop, so the UI
+ * reflects a click right away rather than waiting up to a heartbeat interval
+ * for the stream to carry the same flag. Ignored while we have no live
+ * connection, since we'd have no basis to claim the engine is live.
+ */
+export function setSimulationEngineRunning(running: boolean): void {
+  if (state.status === 'disconnected' || state.status === 'reconnecting') return
+  setState({ engineRunning: running, status: running ? 'live' : 'paused' })
+}
+
 /** Manually force a fresh connection attempt, resetting the backoff counter. */
 export function reconnectSimulationStream(): void {
   reconnectAttempts = 0

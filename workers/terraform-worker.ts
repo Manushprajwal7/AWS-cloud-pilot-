@@ -64,7 +64,7 @@ async function processPlan(job: Job): Promise<{ planned: boolean }> {
     where: { id: artifact.id },
     data: {
       planJson: {
-        resourceChanges: resourceBlocks.map((block) => ({ address: block, action: 'update' })),
+        resourceChanges: resourceBlocks.map((block: string) => ({ address: block, action: 'update' })),
         plannedAt: new Date().toISOString(),
       },
     },

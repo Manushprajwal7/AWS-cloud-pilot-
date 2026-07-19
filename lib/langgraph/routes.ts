@@ -25,8 +25,18 @@ export function routeAfterCalculateImpact(state: GraphState): 'planRemediation' 
   return state.error ? 'audit' : 'planRemediation'
 }
 
+/**
+ * NO_ACTION has no Terraform template (see UnsupportedRemediationError in
+ * lib/terraform/templates.ts) — routing it into terraformGenerationAgent
+ * would throw and mark the run 'failed' for what is actually a legitimate
+ * planning outcome, not an error.
+ */
+const ACTIONS_WITHOUT_TERRAFORM_TEMPLATE = new Set(['NO_ACTION'])
+
 export function routeAfterPlanRemediation(state: GraphState): 'terraformGenerate' | 'audit' {
-  return state.error ? 'audit' : 'terraformGenerate'
+  if (state.error) return 'audit'
+  if (state.remediationPlan && ACTIONS_WITHOUT_TERRAFORM_TEMPLATE.has(state.remediationPlan.action)) return 'audit'
+  return 'terraformGenerate'
 }
 
 export function routeAfterTerraformGenerate(state: GraphState): 'staticSecurity' | 'audit' {

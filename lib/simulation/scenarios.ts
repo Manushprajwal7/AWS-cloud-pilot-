@@ -75,7 +75,10 @@ export const SCENARIO_DEFINITIONS: Record<ScenarioType, ScenarioDefinition> = {
     status: 'degraded',
     targetMetrics: {
       cpuPercent: 35,
-      memoryPercent: 88,
+      // Saturation, not a comfortable steady state — a leak climbs until
+      // something reclaims the memory. scenario-runners.ts walks this axis up
+      // linearly rather than easing into it; see MEMORY_LEAK_CLIMB_* there.
+      memoryPercent: 99,
       networkInMb: 8,
       networkOutMb: 5,
       requestsPerMinute: 150,

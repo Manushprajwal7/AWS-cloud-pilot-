@@ -36,6 +36,23 @@ const MS_PER_HOUR = 3_600_000
 // gauge at the ceiling forever, which reads as "about to fail," not "failed."
 const MEMORY_LEAK_CEILING_PERCENT = 99
 
+/**
+ * A leak's memory axis climbs *linearly* rather than easing toward its target
+ * like every other metric. This is load-bearing, not a stylistic choice:
+ * memoryLeakRule (lib/anomalies/rules.ts) fires only when memory is both above
+ * 85% and still rising by >= 10 points across a 5-reading window. Under an
+ * easing curve those two conditions are mutually exclusive — by the time
+ * memory clears 85 it is asymptotically close to the ceiling and a 5-reading
+ * window moves it barely a point or two, so the rule could never fire. A real
+ * leak also doesn't politely converge on a comfortable steady state; it climbs
+ * until something reclaims the memory.
+ *
+ * The slope must stay above 2.0 to keep a 5-reading window clearing the rule's
+ * +10 requirement with margin.
+ */
+const MEMORY_LEAK_CLIMB_PERCENT_PER_TICK = 3
+const MEMORY_LEAK_CLIMB_JITTER_PERCENT = 0.4
+
 function round(value: number, precision: number): number {
   const factor = 10 ** precision
   return Math.round(value * factor) / factor
@@ -53,6 +70,12 @@ function approach(
   const swing = Math.max(Math.abs(target), 1) * TICK_JITTER_FRACTION
   const jittered = stepped + (random() * 2 - 1) * swing
   return clamp(jittered, min, max)
+}
+
+/** One linear step of a memory leak's climb toward saturation. */
+function climbLeakedMemory(current: number, random: RandomSource): number {
+  const jitter = (random() * 2 - 1) * MEMORY_LEAK_CLIMB_JITTER_PERCENT
+  return clamp(current + MEMORY_LEAK_CLIMB_PERCENT_PER_TICK + jitter, 0, MEMORY_LEAK_CEILING_PERCENT)
 }
 
 export interface TickStepOptions {
@@ -73,10 +96,12 @@ export function stepResourceMetrics(
   const { random, tickIntervalMs } = options
   const target = getScenarioDefinition(scenario).targetMetrics
   const rate = APPROACH_RATE[scenario]
-  const memoryCeiling = scenario === 'MEMORY_LEAK' ? MEMORY_LEAK_CEILING_PERCENT : 100
 
   const cpuPercent = approach(current.cpuPercent, target.cpuPercent, rate, random, 0, 100)
-  const memoryPercent = approach(current.memoryPercent, target.memoryPercent, rate, random, 0, memoryCeiling)
+  const memoryPercent =
+    scenario === 'MEMORY_LEAK'
+      ? climbLeakedMemory(current.memoryPercent, random)
+      : approach(current.memoryPercent, target.memoryPercent, rate, random, 0, 100)
   const networkInMb = approach(current.networkInMb, target.networkInMb, rate, random, 0, Number.POSITIVE_INFINITY)
   const networkOutMb = approach(current.networkOutMb, target.networkOutMb, rate, random, 0, Number.POSITIVE_INFINITY)
   const requestsPerMinute = Math.round(

@@ -206,5 +206,16 @@ export function createSimulationStore(): SimulationStore {
  * ephemeral (resets on server restart / cold start) — the same limitation
  * lib/mockAwsState.ts had, called out in the Phase 0 audit. Persisting this
  * to a real database is out of scope for this phase.
+ *
+ * Pinned to globalThis (the same pattern as lib/db/client.ts) because a plain
+ * module-level const is NOT actually a process-wide singleton in Next.js:
+ * instrumentation.ts and the route handlers are bundled into separate module
+ * registries, so each would get its own store — the tick engine would then
+ * mutate a store no API route can see, and every panel would render the frozen
+ * seed data forever. Dev-mode hot reload duplicates it the same way.
  */
-export const simulationStore = createSimulationStore()
+const globalForSimulation = globalThis as unknown as { simulationStore?: SimulationStore }
+
+export const simulationStore: SimulationStore = globalForSimulation.simulationStore ?? createSimulationStore()
+
+globalForSimulation.simulationStore = simulationStore

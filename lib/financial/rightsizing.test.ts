@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateExpectedPostRemediationCost,
   calculateScheduledShutdownSavings,
+  isRemediationFeasible,
   recommendRightsizing,
   recommendScaleIn,
+  recommendScaleOut,
 } from './rightsizing'
+import { calculateCost } from '@/lib/simulation/resources'
 import type { SimulatedCloudResource } from '@/lib/simulation/types'
 
 function makeResource(overrides: Partial<SimulatedCloudResource> = {}): SimulatedCloudResource {
@@ -97,6 +100,50 @@ describe('lib/financial/rightsizing', () => {
     })
   })
 
+  function makeScalableEcsResource(overrides: Partial<SimulatedCloudResource> = {}): SimulatedCloudResource {
+    const configuration = { desiredCapacity: 2, minCapacity: 1, maxCapacity: 5, vcpu: 1, memoryGb: 2 }
+    const metrics = { ...makeResource().metrics, cpuPercent: 92, ...overrides.metrics }
+    const hourlyUsd = calculateCost('ECS', configuration, metrics).hourlyUsd
+    return makeResource({
+      service: 'ECS',
+      configuration,
+      metrics,
+      cost: { hourlyUsd, dailyUsd: hourlyUsd * 24, projectedMonthlyUsd: hourlyUsd * 730 },
+      ...overrides,
+    })
+  }
+
+  describe('recommendScaleOut', () => {
+    it('recommends one more task for a high-CPU ECS service with headroom', () => {
+      const resource = makeScalableEcsResource()
+      const rec = recommendScaleOut(resource)
+      expect(rec?.recommendedCapacity).toBe(3)
+      expect(rec?.projectedCost.monthlyUsd).toBeGreaterThan(rec!.currentCost.monthlyUsd)
+    })
+
+    it('never recommends going above maxCapacity', () => {
+      const resource = makeResource({
+        service: 'ECS',
+        configuration: { desiredCapacity: 5, minCapacity: 1, maxCapacity: 5, vcpu: 1, memoryGb: 2 },
+        metrics: { ...makeResource().metrics, cpuPercent: 92 },
+      })
+      expect(recommendScaleOut(resource)).toBeNull()
+    })
+
+    it('returns null when CPU is not high enough to justify scaling out', () => {
+      const resource = makeResource({
+        service: 'ECS',
+        configuration: { desiredCapacity: 2, minCapacity: 1, maxCapacity: 5, vcpu: 1, memoryGb: 2 },
+      })
+      expect(recommendScaleOut(resource)).toBeNull()
+    })
+
+    it('returns null for non-ECS services', () => {
+      const resource = makeResource({ metrics: { ...makeResource().metrics, cpuPercent: 92 } })
+      expect(recommendScaleOut(resource)).toBeNull()
+    })
+  })
+
   describe('calculateExpectedPostRemediationCost', () => {
     it('STOP results in zero cost', () => {
       expect(calculateExpectedPostRemediationCost(makeResource(), 'STOP')).toBe(0)
@@ -108,10 +155,46 @@ describe('lib/financial/rightsizing', () => {
       expect(calculateExpectedPostRemediationCost(resource, 'RIGHTSIZE')).toBe(rec.projectedCost.monthlyUsd)
     })
 
-    it('NO_ACTION and SCALE_OUT return the current cost unchanged', () => {
+    it('NO_ACTION returns the current cost unchanged', () => {
       const resource = makeResource()
       expect(calculateExpectedPostRemediationCost(resource, 'NO_ACTION')).toBe(resource.cost.projectedMonthlyUsd)
+    })
+
+    it('SCALE_OUT falls back to the current cost when no recommendation applies, and costs more when it does', () => {
+      const resource = makeResource()
       expect(calculateExpectedPostRemediationCost(resource, 'SCALE_OUT')).toBe(resource.cost.projectedMonthlyUsd)
+
+      const scalable = makeScalableEcsResource()
+      const rec = recommendScaleOut(scalable)!
+      expect(calculateExpectedPostRemediationCost(scalable, 'SCALE_OUT')).toBe(rec.projectedCost.monthlyUsd)
+      expect(rec.projectedCost.monthlyUsd).toBeGreaterThan(scalable.cost.projectedMonthlyUsd)
+    })
+  })
+
+  describe('isRemediationFeasible', () => {
+    it('RIGHTSIZE is feasible only when recommendRightsizing returns a recommendation', () => {
+      expect(isRemediationFeasible(makeResource(), 'RIGHTSIZE')).toBe(true)
+      const highCpu = makeResource({ metrics: { ...makeResource().metrics, cpuPercent: 91 } })
+      expect(isRemediationFeasible(highCpu, 'RIGHTSIZE')).toBe(false)
+    })
+
+    it('SCALE_IN is feasible only when recommendScaleIn returns a recommendation', () => {
+      const scalable = makeResource({
+        service: 'ECS',
+        configuration: { desiredCapacity: 4, minCapacity: 2, maxCapacity: 8, vcpu: 1, memoryGb: 2 },
+      })
+      expect(isRemediationFeasible(scalable, 'SCALE_IN')).toBe(true)
+      expect(isRemediationFeasible(makeResource(), 'SCALE_IN')).toBe(false)
+    })
+
+    it('STOP and SCHEDULE are always feasible', () => {
+      expect(isRemediationFeasible(makeResource(), 'STOP')).toBe(true)
+      expect(isRemediationFeasible(makeResource(), 'SCHEDULE')).toBe(true)
+    })
+
+    it('SCALE_OUT and NO_ACTION are never feasible (no Terraform template)', () => {
+      expect(isRemediationFeasible(makeResource(), 'SCALE_OUT')).toBe(false)
+      expect(isRemediationFeasible(makeResource(), 'NO_ACTION')).toBe(false)
     })
   })
 })

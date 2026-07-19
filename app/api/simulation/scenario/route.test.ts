@@ -22,6 +22,17 @@ describe('POST /api/simulation/scenario', () => {
     expect(body.resource.metrics.cpuPercent).toBe(seed.metrics.cpuPercent)
   })
 
+  it('instant: true snaps metrics straight to the scenario target', async () => {
+    const [seed] = simulationStore.listResources()
+    const response = await POST(makeRequest({ resourceId: seed.id, scenario: 'IDLE_RESOURCE', instant: true }))
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { resource: { activeScenario: string; metrics: { cpuPercent: number; idleHours: number } } }
+    expect(body.resource.activeScenario).toBe('IDLE_RESOURCE')
+    expect(body.resource.metrics.cpuPercent).toBe(2)
+    expect(body.resource.metrics.idleHours).toBe(6)
+  })
+
   it('returns 400 for an invalid scenario value', async () => {
     const [seed] = simulationStore.listResources()
     const response = await POST(makeRequest({ resourceId: seed.id, scenario: 'NOT_REAL' }))

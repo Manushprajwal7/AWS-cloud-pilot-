@@ -13,9 +13,12 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Circle, Loader2, RotateCcw, ShieldX, XCircle } from 'lucide-react'
+import { CheckCircle2, Circle, Loader2, MinusCircle, RotateCcw, ShieldX, XCircle } from 'lucide-react'
 
-export type VisualNodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'rejected' | 'rolled_back'
+export type VisualNodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'rejected' | 'rolled_back' | 'skipped'
+
+/** GraphStatus values (lib/langgraph/state.ts) that mean the run will never advance further — anything still 'pending' at that point was routed around, not merely delayed. */
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'no_anomaly', 'rejected', 'applied', 'rolled_back'])
 
 const NODE_ORDER = [
   'monitor',
@@ -183,34 +186,35 @@ export function GraphVisualizer({ runId, onStatusChange }: GraphVisualizerProps)
   }, [runId])
 
   if (!runId) {
-    return <div className="text-sm text-gray-500 text-center py-8">No graph run selected yet.</div>
+    return <div className="text-[13px] text-graphite text-center py-8">No graph run selected yet.</div>
   }
 
   if (connection === 'loading' && Object.keys(statuses).length === 0) {
-    return <div className="text-sm text-gray-500 text-center py-8 animate-pulse">Loading run state…</div>
+    return <div className="text-[13px] text-graphite text-center py-8 animate-pulse">Loading run state…</div>
   }
 
   if (connection === 'error') {
-    return <div className="text-sm text-red-600 text-center py-8">Failed to load run {runId}.</div>
+    return <div className="text-[13px] text-danger text-center py-8">Failed to load run {runId}.</div>
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-mono text-gray-500">run {runId.slice(0, 8)}</span>
-        <div className="flex items-center gap-2 text-xs">
-          {connection === 'disconnected' && <span className="text-red-600 font-medium">Stream disconnected</span>}
-          {runStatus && <span className="font-semibold text-gray-700 uppercase">{runStatus}</span>}
+        <span className="text-[11px] font-mono text-graphite">run {runId.slice(0, 8)}</span>
+        <div className="flex items-center gap-2 text-[11px] font-mono">
+          {connection === 'disconnected' && <span className="text-danger font-medium">Stream disconnected</span>}
+          {runStatus && <span className="font-semibold text-ink uppercase">{runStatus}</span>}
         </div>
       </div>
       <ol className="space-y-1.5">
         {NODE_ORDER.map((node) => {
-          const status = statuses[node] ?? 'pending'
+          const recorded = statuses[node]
+          const status: VisualNodeStatus = recorded ?? (runStatus && TERMINAL_RUN_STATUSES.has(runStatus) ? 'skipped' : 'pending')
           return (
-            <li key={node} className="flex items-center gap-2 text-sm">
+            <li key={node} className="flex items-center gap-2 text-[12px] font-mono">
               <StatusIcon status={status} />
-              <span className={status === 'pending' ? 'text-gray-400' : 'text-gray-800'}>{NODE_LABELS[node]}</span>
-              <span className={`ml-auto text-xs font-medium uppercase ${statusColor(status)}`}>{status.replace('_', ' ')}</span>
+              <span className={status === 'pending' || status === 'skipped' ? 'text-graphite' : 'text-ink'}>{NODE_LABELS[node]}</span>
+              <span className={`ml-auto text-[10px] font-medium uppercase ${statusColor(status)}`}>{status.replace('_', ' ')}</span>
             </li>
           )
         })}
@@ -222,33 +226,37 @@ export function GraphVisualizer({ runId, onStatusChange }: GraphVisualizerProps)
 function statusColor(status: VisualNodeStatus): string {
   switch (status) {
     case 'completed':
-      return 'text-green-600'
+      return 'text-ok'
     case 'running':
-      return 'text-orange-600'
+      return 'text-signal'
     case 'failed':
-      return 'text-red-600'
+      return 'text-danger'
     case 'rejected':
-      return 'text-red-500'
+      return 'text-danger'
     case 'rolled_back':
-      return 'text-purple-600'
+      return 'text-warn'
+    case 'skipped':
+      return 'text-graphite'
     default:
-      return 'text-gray-400'
+      return 'text-graphite'
   }
 }
 
 function StatusIcon({ status }: { status: VisualNodeStatus }) {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+      return <CheckCircle2 className="w-4 h-4 text-ok flex-shrink-0" />
     case 'running':
-      return <Loader2 className="w-4 h-4 text-orange-600 flex-shrink-0 animate-spin" />
+      return <Loader2 className="w-4 h-4 text-signal flex-shrink-0 animate-spin" />
     case 'failed':
-      return <XCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+      return <XCircle className="w-4 h-4 text-danger flex-shrink-0" />
     case 'rejected':
-      return <ShieldX className="w-4 h-4 text-red-500 flex-shrink-0" />
+      return <ShieldX className="w-4 h-4 text-danger flex-shrink-0" />
     case 'rolled_back':
-      return <RotateCcw className="w-4 h-4 text-purple-600 flex-shrink-0" />
+      return <RotateCcw className="w-4 h-4 text-warn flex-shrink-0" />
+    case 'skipped':
+      return <MinusCircle className="w-4 h-4 text-hairline flex-shrink-0" />
     default:
-      return <Circle className="w-4 h-4 text-gray-300 flex-shrink-0" />
+      return <Circle className="w-4 h-4 text-hairline flex-shrink-0" />
   }
 }

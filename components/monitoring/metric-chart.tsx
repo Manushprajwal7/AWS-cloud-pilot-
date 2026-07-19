@@ -80,17 +80,17 @@ export function MetricChart({
               </linearGradient>
             ))}
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+          <CartesianGrid strokeDasharray="2 3" stroke="#DADADA" vertical={false} />
           <XAxis
             dataKey="timestamp"
             tickFormatter={formatTime}
-            stroke="#9ca3af"
-            style={{ fontSize: '11px' }}
+            stroke="#5C6672"
+            style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}
             minTickGap={40}
           />
           <YAxis
-            stroke="#9ca3af"
-            style={{ fontSize: '11px' }}
+            stroke="#5C6672"
+            style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}
             domain={yDomain ?? [0, 'auto']}
             allowDecimals
             tickFormatter={(v: number) => `${valueFormatter(v)}${unit}`}
@@ -99,9 +99,9 @@ export function MetricChart({
           <Tooltip
             labelFormatter={(label) => formatTime(String(label))}
             formatter={(value, name) => [`${valueFormatter(Number(value))}${unit}`, String(name)]}
-            contentStyle={{ fontSize: '12px', borderRadius: '8px' }}
+            contentStyle={{ fontSize: '12px', borderRadius: '2px', border: '1px solid #DADADA', fontFamily: 'var(--font-mono)' }}
           />
-          {series.length > 1 && <Legend wrapperStyle={{ fontSize: '11px' }} />}
+          {series.length > 1 && <Legend wrapperStyle={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }} />}
           {series.map((s) => (
             <Area
               key={s.key}
@@ -121,11 +121,11 @@ export function MetricChart({
   }
 
   return (
-    <figure className="bg-white rounded-lg border border-gray-200 p-4" aria-label={`${title} chart`}>
+    <figure className="bg-panel border border-hairline p-4" aria-label={`${title} chart`}>
       <figcaption className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-gray-900">{title}</h4>
+        <h4 className="text-[10px] font-mono uppercase tracking-wider text-graphite">{title}</h4>
         {latest && (
-          <span className="text-sm font-bold text-gray-900">
+          <span className="text-[13px] font-mono font-bold text-ink">
             {series.length === 1 ? `${valueFormatter(Number(latest[series[0].key]))}${unit}` : null}
           </span>
         )}

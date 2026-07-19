@@ -213,5 +213,16 @@ export function createAnomalyDetector(store: SimulationStore): AnomalyDetector {
   }
 }
 
-/** Shared singleton bound to the shared simulationStore, used by the API routes. */
-export const anomalyDetector = createAnomalyDetector(simulationStore)
+/**
+ * Shared singleton bound to the shared simulationStore, used by the API routes.
+ * Pinned to globalThis for the same reason simulationStore is — and with an
+ * extra consequence here: createAnomalyDetector subscribes to the store on
+ * construction, so an unpinned detector would both miss the ticks arriving on
+ * the shared store and, on every hot reload, leave the previous instance's
+ * subscription attached — evaluating the same snapshot repeatedly.
+ */
+const globalForDetector = globalThis as unknown as { anomalyDetector?: AnomalyDetector }
+
+export const anomalyDetector: AnomalyDetector = globalForDetector.anomalyDetector ?? createAnomalyDetector(simulationStore)
+
+globalForDetector.anomalyDetector = anomalyDetector

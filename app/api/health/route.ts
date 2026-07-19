@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/db/client'
+import { isDatabaseConfigured, prisma } from '@/lib/db/client'
 import { redisConnection } from '@/lib/queue/connection'
 
 export const dynamic = 'force-dynamic'
@@ -19,9 +19,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  */
 export async function GET(): Promise<Response> {
   const [database, redis] = await Promise.all([
-    withTimeout(prisma.$queryRaw`SELECT 1`, DEPENDENCY_TIMEOUT_MS)
-      .then(() => 'ok' as const)
-      .catch((error: unknown) => ({ status: 'error' as const, message: error instanceof Error ? error.message : 'unknown error' })),
+    isDatabaseConfigured()
+      ? withTimeout(prisma.$queryRaw`SELECT 1`, DEPENDENCY_TIMEOUT_MS)
+          .then(() => 'ok' as const)
+          .catch((error: unknown) => ({ status: 'error' as const, message: error instanceof Error ? error.message : 'unknown error' }))
+      : Promise.resolve({ status: 'not_configured' as const }),
     withTimeout(redisConnection.ping(), DEPENDENCY_TIMEOUT_MS)
       .then(() => 'ok' as const)
       .catch((error: unknown) => ({ status: 'error' as const, message: error instanceof Error ? error.message : 'unknown error' })),

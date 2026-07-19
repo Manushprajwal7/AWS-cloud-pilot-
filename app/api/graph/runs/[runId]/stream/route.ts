@@ -26,16 +26,30 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      // subscribeToRun replays its buffered events synchronously, so a run
+      // that already finished emits run_completed *during* the subscribe call
+      // below — before it has returned an unsubscribe handle and before the
+      // heartbeat exists. Both must therefore be nullable and declared up
+      // front: closing over `const`s assigned after the subscribe threw
+      // "Cannot access 'unsubscribe' before initialization" and turned every
+      // fast run's stream into an HTTP 500.
+      let closed = false
+      let unsubscribe: (() => void) | null = null
+      let heartbeat: ReturnType<typeof setInterval> | null = null
+
       function send(payload: unknown): void {
+        if (closed) return
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
 
-      let closed = false
       const cleanup = () => {
         if (closed) return
         closed = true
-        unsubscribe()
-        clearInterval(heartbeat)
+        if (heartbeat) {
+          clearInterval(heartbeat)
+          heartbeat = null
+        }
+        unsubscribe?.()
         try {
           controller.close()
         } catch {
@@ -43,14 +57,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         }
       }
 
-      const unsubscribe = subscribeToRun(runId, (event: GraphRunEvent) => {
+      const dispose = subscribeToRun(runId, (event: GraphRunEvent) => {
         send(event)
         if (event.type === 'run_completed' || event.type === 'run_failed') {
           cleanup()
         }
       })
 
-      const heartbeat = setInterval(() => {
+      if (closed) {
+        // The replay above already delivered a terminal event and closed the
+        // stream; cleanup couldn't unsubscribe because `dispose` didn't exist
+        // yet, so drop the listener here instead of leaking it.
+        dispose()
+        return
+      }
+
+      unsubscribe = dispose
+
+      heartbeat = setInterval(() => {
         send({ type: 'heartbeat', timestamp: new Date().toISOString() })
       }, HEARTBEAT_INTERVAL_MS)
 

@@ -31,7 +31,7 @@ import { hashJson } from '@/lib/terraform/hashing'
 import { calculateCost } from '@/lib/simulation/resources'
 import { simulationStore } from '@/lib/simulation/simulation-store'
 import type { SimulatedCloudResource } from '@/lib/simulation/types'
-import { recommendRightsizing, recommendScaleIn, type RemediationAction } from '@/lib/financial/rightsizing'
+import { recommendRightsizing, recommendScaleIn, recommendScaleOut, type RemediationAction } from '@/lib/financial/rightsizing'
 import { captureRollbackSnapshot } from '@/lib/rollback/rollback-plan'
 import { emitCommandOutput } from '../command-output-bus'
 import { renderCommandLog, workspaceFromPath } from './terraform-sandbox-shared'
@@ -39,12 +39,12 @@ import type { GraphState, GraphStateUpdate } from '../state'
 
 /**
  * The simulated effect of a successful apply. STOP maps to a status
- * change; RIGHTSIZE/SCALE_IN recompute configuration + cost via the same
- * deterministic recommendation functions generation used, re-run here
- * rather than threaded through state (the resource hasn't changed since
- * generation within one run, so the result is identical). SCHEDULE/
- * SCALE_OUT/NO_ACTION have no immediate state change — SCHEDULE is a
- * future/external trigger, not an in-place mutation.
+ * change; RIGHTSIZE/SCALE_IN/SCALE_OUT recompute configuration + cost via
+ * the same deterministic recommendation functions generation used, re-run
+ * here rather than threaded through state (the resource hasn't changed
+ * since generation within one run, so the result is identical). SCHEDULE/
+ * NO_ACTION have no immediate state change — SCHEDULE is a future/external
+ * trigger, not an in-place mutation.
  */
 function applyRemediationToSimulation(resource: SimulatedCloudResource, action: RemediationAction): void {
   switch (action) {
@@ -67,8 +67,15 @@ function applyRemediationToSimulation(resource: SimulatedCloudResource, action: 
       simulationStore.updateResource(resource.id, { configuration, cost })
       return
     }
+    case 'SCALE_OUT': {
+      const recommendation = recommendScaleOut(resource)
+      if (!recommendation) return
+      const configuration = { ...resource.configuration, desiredCapacity: recommendation.recommendedCapacity }
+      const cost = calculateCost(resource.service, configuration, resource.metrics)
+      simulationStore.updateResource(resource.id, { configuration, cost })
+      return
+    }
     case 'SCHEDULE':
-    case 'SCALE_OUT':
     case 'NO_ACTION':
       return
   }

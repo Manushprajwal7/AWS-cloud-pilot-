@@ -23,6 +23,7 @@ const SIZE_ORDER_BY_SERVICE: Partial<Record<string, string[]>> = {
 const RIGHTSIZING_CPU_THRESHOLD = 30
 const RIGHTSIZING_MEMORY_THRESHOLD = 30
 const DEFAULT_OFF_HOURS_PER_DAY = 12
+const SCALE_OUT_CPU_THRESHOLD = 80
 
 export interface RightsizingRecommendation {
   resourceId: string
@@ -131,13 +132,80 @@ export function recommendScaleIn(resource: SimulatedCloudResource): ScaleInRecom
   }
 }
 
+export interface ScaleOutRecommendation {
+  resourceId: string
+  currentCapacity: number
+  recommendedCapacity: number
+  currentCost: CostBreakdown
+  projectedCost: CostBreakdown
+}
+
+/**
+ * Recommend stepping desiredCapacity up by exactly one task (never above
+ * maxCapacity), only when CPU utilization is high enough to justify it. A
+ * single conservative step, mirroring recommendScaleIn's direction and
+ * caution in reverse.
+ */
+export function recommendScaleOut(resource: SimulatedCloudResource): ScaleOutRecommendation | null {
+  if (resource.service !== 'ECS') return null
+
+  const { desiredCapacity, maxCapacity } = resource.configuration
+  if (desiredCapacity === undefined || maxCapacity === undefined) return null
+  if (resource.metrics.cpuPercent < SCALE_OUT_CPU_THRESHOLD) return null
+
+  const recommendedCapacity = Math.min(maxCapacity, desiredCapacity + 1)
+  if (recommendedCapacity <= desiredCapacity) return null
+
+  const currentCost = toCostBreakdown(resource.cost.hourlyUsd)
+  const projected = calculateCost(resource.service, { ...resource.configuration, desiredCapacity: recommendedCapacity }, resource.metrics)
+  const projectedCost = toCostBreakdown(projected.hourlyUsd)
+
+  return {
+    resourceId: resource.id,
+    currentCapacity: desiredCapacity,
+    recommendedCapacity,
+    currentCost,
+    projectedCost,
+  }
+}
+
 export type RemediationAction = 'NO_ACTION' | 'STOP' | 'RIGHTSIZE' | 'SCHEDULE' | 'SCALE_OUT' | 'SCALE_IN'
+
+/**
+ * Whether a deterministic Terraform template can actually be generated for
+ * this action against the resource's current state. RIGHTSIZE, SCALE_IN,
+ * and SCALE_OUT are only feasible when their respective
+ * recommendRightsizing/recommendScaleIn/recommendScaleOut function actually
+ * returns a recommendation (e.g. not when utilization doesn't justify the
+ * change, or the resource is already at its smallest/largest size/capacity)
+ * — lib/terraform/templates.ts throws UnsupportedRemediationError in
+ * exactly those cases, so planRemediationNode must check this before
+ * committing to an action the diagnosis LLM proposed, not after generation
+ * already failed.
+ */
+export function isRemediationFeasible(resource: SimulatedCloudResource, action: RemediationAction): boolean {
+  switch (action) {
+    case 'RIGHTSIZE':
+      return recommendRightsizing(resource) !== null
+    case 'SCALE_IN':
+      return recommendScaleIn(resource) !== null
+    case 'SCALE_OUT':
+      return recommendScaleOut(resource) !== null
+    case 'STOP':
+    case 'SCHEDULE':
+      return true
+    case 'NO_ACTION':
+      return false
+  }
+}
 
 /**
  * Expected monthly cost after applying a given remediation action. Falls
  * back to the resource's current cost when the action has no applicable
- * recommendation (e.g. RIGHTSIZE on an already-minimal instance) or isn't
- * a savings action (SCALE_OUT, NO_ACTION).
+ * recommendation (e.g. RIGHTSIZE on an already-minimal instance, or
+ * SCALE_OUT with no headroom) or isn't a savings action (NO_ACTION).
+ * SCALE_OUT legitimately costs more, not less — expectedMonthlySavingsUsd
+ * is clamped to 0 by planRemediationNode for that case.
  */
 export function calculateExpectedPostRemediationCost(resource: SimulatedCloudResource, action: RemediationAction): number {
   switch (action) {
@@ -153,7 +221,10 @@ export function calculateExpectedPostRemediationCost(resource: SimulatedCloudRes
       const recommendation = recommendScaleIn(resource)
       return recommendation ? recommendation.projectedCost.monthlyUsd : resource.cost.projectedMonthlyUsd
     }
-    case 'SCALE_OUT':
+    case 'SCALE_OUT': {
+      const recommendation = recommendScaleOut(resource)
+      return recommendation ? recommendation.projectedCost.monthlyUsd : resource.cost.projectedMonthlyUsd
+    }
     case 'NO_ACTION':
     default:
       return resource.cost.projectedMonthlyUsd

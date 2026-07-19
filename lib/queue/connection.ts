@@ -16,12 +16,9 @@ export function getRedisUrl(): string {
 function createRedisConnection(): IORedis {
   const connection = new IORedis(getRedisUrl(), {
     maxRetriesPerRequest: null,
-    enableReadyCheck: true,
+    lazyConnect: true,
   })
 
-  // Redis connectivity failures must be visible, not silently swallowed —
-  // ioredis retries indefinitely by default, which is correct for workers,
-  // but that retry loop is invisible unless something logs it.
   connection.on('error', (error) => {
     console.error('[redis] connection error:', error.message)
   })
@@ -35,11 +32,14 @@ function createRedisConnection(): IORedis {
   return connection
 }
 
-export const redisConnection = globalForRedis.redisConnection ?? createRedisConnection()
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForRedis.redisConnection = redisConnection
+export function getRedisConnection(): IORedis {
+  if (!globalForRedis.redisConnection) {
+    globalForRedis.redisConnection = createRedisConnection()
+  }
+  return globalForRedis.redisConnection
 }
+
+export const redisConnection = getRedisConnection()
 
 export async function closeRedisConnection(): Promise<void> {
   await redisConnection.quit()
