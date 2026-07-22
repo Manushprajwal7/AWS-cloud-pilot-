@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import { GET } from './route'
+import { tickEngine } from '@/lib/simulation/tick-engine'
 
 describe('GET /api/simulation/stream', () => {
+  afterEach(() => {
+    tickEngine.stop()
+  })
+
   it('is an SSE stream whose first message is a full snapshot', async () => {
+    tickEngine.start()
     const controller = new AbortController()
     const request = new NextRequest('http://localhost/api/simulation/stream', { signal: controller.signal })
 

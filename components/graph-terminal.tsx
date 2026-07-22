@@ -10,13 +10,13 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Play, Trash2 } from 'lucide-react'
+import { Play } from 'lucide-react'
 
 const DEFAULT_RESOURCE_ID = 'res-ec2-prod-01'
 
 export function GraphTerminal() {
   const [isRunning, setIsRunning] = useState(false)
-  const [resourceId, setResourceId] = useState(DEFAULT_RESOURCE_ID)
+  const resourceId = DEFAULT_RESOURCE_ID
 
   async function runGraph(): Promise<void> {
     if (isRunning) return
@@ -70,33 +70,13 @@ export function GraphTerminal() {
     }
   }
 
-  const clearResourceId = () => setResourceId(DEFAULT_RESOURCE_ID)
-
   return (
-    <div className="bg-panel border border-hairline flex flex-col h-full">
+    <div className="bg-panel border border-hairline shadow-sm flex flex-col h-full">
       <div className="p-5">
-        <div className="mb-4">
-          <label htmlFor="graph-resource-id" className="text-[10px] font-mono uppercase tracking-wider text-graphite mb-1.5 block">
-            Resource ID
-          </label>
-          <input
-            id="graph-resource-id"
-            value={resourceId}
-            onChange={(e) => setResourceId(e.target.value)}
-            disabled={isRunning}
-            placeholder="res-ec2-prod-01"
-            className="w-full bg-subtle border border-hairline rounded-sm px-3 py-2 text-[13px] font-mono text-ink placeholder-graphite/70 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-signal focus:bg-panel transition-all"
-          />
-        </div>
-
         <div className="flex gap-2">
           <Button onClick={runGraph} disabled={isRunning} className="gap-2 bg-signal hover:bg-signal/90 text-white rounded-sm uppercase text-[12px] tracking-wide font-mono" size="sm">
             <Play className="w-3.5 h-3.5" aria-hidden="true" />
             {isRunning ? 'Running graph...' : 'Run LangGraph'}
-          </Button>
-          <Button onClick={clearResourceId} disabled={isRunning} variant="outline" size="sm" className="gap-2 rounded-sm border-hairline text-ink hover:bg-subtle uppercase text-[12px] tracking-wide font-mono">
-            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-            Clear
           </Button>
         </div>
       </div>

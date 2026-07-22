@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@config '../tailwind.config.ts';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -62,8 +63,8 @@
   --accent: #e8f1fa;
   --accent-foreground: #146eb4;
   --destructive: #d13212;
-  --border: #dadada;
-  --input: #dadada;
+  --border: #b7bfc8;
+  --input: #b7bfc8;
   --ring: #ff9900;
   --chart-1: #ff9900;
   --chart-2: #146eb4;
@@ -77,7 +78,7 @@
   --sidebar-primary-foreground: #000000;
   --sidebar-accent: #f2f2f2;
   --sidebar-accent-foreground: #000000;
-  --sidebar-border: #dadada;
+  --sidebar-border: #b7bfc8;
   --sidebar-ring: #ff9900;
 }
 
@@ -95,5 +96,27 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Every interactive element gets a visible Amazon-orange focus ring on
+     keyboard nav, even hand-rolled buttons/links that don't go through the
+     shadcn Button component. Mouse/touch activation never triggers :focus-visible,
+     so this doesn't add a ring on click. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex]:not([tabindex='-1']) {
+    outline-offset: 2px;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }

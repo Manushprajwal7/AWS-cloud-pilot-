@@ -18,8 +18,14 @@ export const MAX_OUTPUT_BYTES = 1_000_000 // 1MB per stream
  * if present. Nothing AWS-credential-shaped (AWS_*, or any *_KEY/*_SECRET/
  * *_TOKEN pattern) is ever on this list — see also security-policy.ts's
  * no-credential-references check on the generated code itself.
+ *
+ * PATHEXT is required on Windows: spawn() with shell:false resolves a bare
+ * command name (e.g. "terraform") to its actual executable (terraform.exe)
+ * by checking the child's own PATHEXT, not the parent's — without it on the
+ * child env, a real, on-PATH terraform.exe still fails to launch with
+ * ENOENT. It's just a list of executable extensions, not sensitive.
  */
-const ALLOWED_ENV_KEYS = ['PATH', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'SystemRoot', 'NODE_ENV'] as const
+const ALLOWED_ENV_KEYS = ['PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'SystemRoot', 'NODE_ENV'] as const
 
 export interface RunCommandOptions {
   command: string

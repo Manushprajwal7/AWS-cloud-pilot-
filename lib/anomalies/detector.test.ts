@@ -166,4 +166,46 @@ describe('lib/anomalies/detector', () => {
       expect(touched.length).toBeGreaterThan(0)
     })
   })
+
+  describe('rebind', () => {
+    it('stops evaluating events from the old store once rebound', () => {
+      const otherStore = createSimulationStore()
+      detector.rebind(otherStore)
+
+      store.saveMetricSnapshot(resourceId, metrics({ cpuPercent: 1, requestsPerMinute: 1, idleHours: 2 }))
+
+      expect(detector.listAnomalies({ resourceId })).toHaveLength(0)
+    })
+
+    it('starts evaluating events from the new store once rebound', () => {
+      const otherStore = createSimulationStore()
+      const otherResourceId = otherStore.listResources()[0].id
+      detector.rebind(otherStore)
+
+      otherStore.saveMetricSnapshot(otherResourceId, metrics({ cpuPercent: 1, requestsPerMinute: 1, idleHours: 2 }))
+
+      expect(detector.listAnomalies({ resourceId: otherResourceId, status: 'active' }).length).toBeGreaterThan(0)
+    })
+
+    it('clears anomalies detected against the old store (a source switch makes them meaningless)', () => {
+      store.saveMetricSnapshot(resourceId, metrics({ cpuPercent: 1, requestsPerMinute: 1, idleHours: 2 }))
+      expect(detector.listAnomalies({ resourceId })).toHaveLength(1)
+
+      detector.rebind(createSimulationStore())
+
+      expect(detector.listAnomalies()).toHaveLength(0)
+    })
+
+    it('is a no-op when rebound to the same store instance', () => {
+      const events: AnomalyEvent[] = []
+      detector.subscribe((event) => events.push(event))
+      store.saveMetricSnapshot(resourceId, metrics({ cpuPercent: 1, requestsPerMinute: 1, idleHours: 2 }))
+      const before = detector.listAnomalies({ resourceId })
+
+      detector.rebind(store)
+      const after = detector.listAnomalies({ resourceId })
+
+      expect(after).toEqual(before)
+    })
+  })
 })

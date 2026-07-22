@@ -10,8 +10,13 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon's pooled connection (PgBouncer, transaction mode) doesn't support
+  // the advisory locks `prisma migrate` needs, so migrations run over this
+  // direct, unpooled connection instead — DATABASE_URL stays what every
+  // query at runtime actually uses.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +278,59 @@ model RollbackRecord {
 
   @@index([terraformExecutionId])
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Real monitoring backend connection (AWS CloudWatch / GCP Cloud Monitoring /
+// Prometheus) — at most one row, fixed id "active". Credentials are never
+// stored in plaintext; see lib/monitoring/credential-crypto.ts.
+// ---------------------------------------------------------------------------
+
+model MonitoringConnection {
+  id                   String    @id @default("active")
+  provider             String
+  status               String    @default("connected")
+  config               Json
+  encryptedCredentials String
+  connectedAt          DateTime  @default(now())
+  lastPolledAt         DateTime?
+  lastError            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Automation rules / policies (workspace configuration, not simulation data)
+// ---------------------------------------------------------------------------
+
+model Automation {
+  id          String    @id @default(uuid())
+  name        String
+  description String
+  trigger     String
+  action      String
+  status      String    @default("active")
+  runCount    Int       @default(0)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model Policy {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  category    String
+  enabled     Boolean  @default(true)
+  rules       Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([enabled])
 }
 
 // ---------------------------------------------------------------------------

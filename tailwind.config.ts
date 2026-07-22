@@ -16,7 +16,7 @@ const config: Config = {
         paper: '#FFFFFF',
         panel: '#FFFFFF',
         subtle: '#F2F2F2',
-        hairline: '#DADADA',
+        hairline: '#B7BFC8',
         ink: '#000000',
         navy: '#232F3E',
         graphite: '#5C6672',

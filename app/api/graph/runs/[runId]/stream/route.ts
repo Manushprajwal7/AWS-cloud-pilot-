@@ -16,7 +16,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { runId } = await params
   const encoder = new TextEncoder()
 
-  const existingRun = await getAgentRun(runId)
+  let existingRun: Awaited<ReturnType<typeof getAgentRun>>
+  try {
+    existingRun = await getAgentRun(runId)
+  } catch (error) {
+    console.error('[graph:stream] failed to look up run — database unreachable?', error)
+    return new Response(JSON.stringify({ error: 'The database is unreachable — is Postgres running?' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
   if (!existingRun) {
     return new Response(JSON.stringify({ error: `Run '${runId}' does not exist` }), {
       status: 404,

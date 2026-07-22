@@ -39,7 +39,7 @@ export function ResourceHealthCards({
   }
 
   if (resources.length === 0) {
-    return <ChartEmptyState message="No resources are being simulated." heightClassName="h-32" />
+    return <ChartEmptyState message="No monitoring instance connected. Start simulation or connect a monitoring instance." heightClassName="h-32" />
   }
 
   return (

@@ -68,7 +68,7 @@ export default function RecommendationsPage() {
   return (
     <div className="flex h-screen w-screen bg-paper overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col ml-56 overflow-hidden">
+      <div className="flex-1 flex flex-col ml-60 overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto pt-16">
           <div className="w-full px-6 py-6 space-y-6">
@@ -80,7 +80,7 @@ export default function RecommendationsPage() {
 
             {/* Summary Cards */}
             <div className="grid grid-cols-4 gap-6">
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="w-10 h-10 bg-signal-soft rounded-lg flex items-center justify-center">
                     <Lightbulb className="w-5 h-5 text-signal" />
@@ -90,7 +90,7 @@ export default function RecommendationsPage() {
                 <p className="text-3xl font-bold text-ink">{summary.totalRecommendations}</p>
               </div>
 
-              <div className="bg-panel rounded-lg border border-ok/25 bg-ok-soft p-6">
+              <div className="bg-panel rounded-lg border border-ok/25 bg-ok-soft shadow-sm p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="w-10 h-10 bg-ok-soft rounded-lg flex items-center justify-center">
                     <TrendingDown className="w-5 h-5 text-ok" />
@@ -100,12 +100,12 @@ export default function RecommendationsPage() {
                 <p className="text-3xl font-bold text-ok">${summary.totalSavings.toFixed(0)}</p>
               </div>
 
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <p className="text-sm text-graphite mb-2">Rightsizing</p>
                 <p className="text-3xl font-bold text-ink">{summary.byType['rightsizing'] ?? 0}</p>
               </div>
 
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <p className="text-sm text-graphite mb-2">Scale In</p>
                 <p className="text-3xl font-bold text-ink">{summary.byType['scale_in'] ?? 0}</p>
               </div>
@@ -122,7 +122,7 @@ export default function RecommendationsPage() {
                       onClick={() => setFilterBy(type)}
                       className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                         filterBy === type
-                          ? 'bg-signal text-white'
+                          ? 'bg-signal text-ink font-semibold'
                           : 'bg-panel border border-hairline text-graphite hover:bg-subtle'
                       }`}
                     >
@@ -145,7 +145,7 @@ export default function RecommendationsPage() {
                     onClick={() => setSortBy(option)}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                       sortBy === option
-                        ? 'bg-ink text-white'
+                        ? 'bg-ink text-white font-semibold'
                         : 'bg-panel border border-hairline text-graphite hover:bg-subtle'
                     }`}
                   >
@@ -157,7 +157,7 @@ export default function RecommendationsPage() {
 
             {/* Recommendations List */}
             {recommendations.length === 0 ? (
-              <div className="bg-panel rounded-lg border border-hairline p-8 text-center">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-8 text-center">
                 <CheckCircle2 className="w-12 h-12 text-ok mx-auto mb-3" />
                 <p className="text-lg font-semibold text-ink">No recommendations</p>
                 <p className="text-graphite mt-1">Your infrastructure is optimized</p>
@@ -174,7 +174,7 @@ export default function RecommendationsPage() {
                         : 'Scheduled Shutdown'
 
                   return (
-                    <div key={rec.id} className="bg-panel rounded-lg border border-hairline p-6 hover:border-signal/40 hover:shadow-md transition-all">
+                    <div key={rec.id} className="bg-panel rounded-lg border border-hairline shadow-sm p-6 hover:border-signal/40 hover:shadow-md transition-all">
                       <div className="flex items-start gap-4">
                         <div className="w-12 h-12 bg-signal-soft rounded-lg flex items-center justify-center flex-shrink-0">
                           <IconComp className="w-6 h-6 text-signal" />
@@ -251,7 +251,7 @@ export default function RecommendationsPage() {
                             <button
                               onClick={() => applyRecommendation(rec.id, rec.resourceId)}
                               disabled={state === 'starting'}
-                              className="px-4 py-2 bg-signal hover:bg-signal disabled:opacity-70 text-white rounded-lg font-medium transition-colors flex-shrink-0 flex items-center gap-1.5"
+                              className="px-4 py-2 bg-signal hover:bg-signal/90 disabled:opacity-70 text-ink font-semibold rounded-lg transition-colors flex-shrink-0 flex items-center gap-1.5"
                             >
                               {state === 'starting' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                               {state === 'starting' ? 'Starting…' : 'Apply'}

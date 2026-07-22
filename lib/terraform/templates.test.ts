@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { generateTerraformForAction, UnsupportedRemediationError } from './templates'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { generateTerraformForAction, wrapWithProviderBlock, UnsupportedRemediationError } from './templates'
 import type { SimulatedCloudResource } from '@/lib/simulation/types'
 
 function makeResource(overrides: Partial<SimulatedCloudResource> = {}): SimulatedCloudResource {
@@ -67,6 +67,26 @@ describe('lib/terraform/templates', () => {
       expect(generated.hcl).toContain('desired_count = 3')
     })
 
+    it('RIGHTSIZE changeSummary states the real before/after instance types and observed utilization countering the scenario', () => {
+      const resource = makeResource() // cpuPercent: 8, memoryPercent: 15, instanceType: m5.xlarge
+      const generated = generateTerraformForAction(resource, 'RIGHTSIZE')
+      expect(generated.changeSummary).toContain('m5.xlarge')
+      expect(generated.changeSummary).toContain('m5.large') // one size down from m5.xlarge
+      expect(generated.changeSummary).toContain('8.0%')
+      expect(generated.changeSummary).toContain('15.0%')
+      expect(generated.changeSummary.toLowerCase()).toContain('gracefully downgrading')
+    })
+
+    it('SCALE_IN changeSummary states the real before/after task counts', () => {
+      const resource = makeResource({
+        service: 'ECS',
+        configuration: { desiredCapacity: 3, minCapacity: 1, maxCapacity: 5 },
+        metrics: { ...makeResource().metrics, cpuPercent: 5 },
+      })
+      const generated = generateTerraformForAction(resource, 'SCALE_IN')
+      expect(generated.changeSummary).toContain('3 to 2 tasks')
+    })
+
     it('throws UnsupportedRemediationError for SCALE_OUT when already at maxCapacity', () => {
       const resource = makeResource({
         service: 'ECS',
@@ -74,6 +94,34 @@ describe('lib/terraform/templates', () => {
         metrics: { ...makeResource().metrics, cpuPercent: 92 },
       })
       expect(() => generateTerraformForAction(resource, 'SCALE_OUT')).toThrow(UnsupportedRemediationError)
+    })
+  })
+
+  describe('wrapWithProviderBlock', () => {
+    const original = process.env.TERRAFORM_AWS_ENDPOINT
+
+    beforeEach(() => {
+      delete process.env.TERRAFORM_AWS_ENDPOINT
+    })
+    afterEach(() => {
+      if (original === undefined) delete process.env.TERRAFORM_AWS_ENDPOINT
+      else process.env.TERRAFORM_AWS_ENDPOINT = original
+    })
+
+    it('omits the endpoints block when TERRAFORM_AWS_ENDPOINT is unset', () => {
+      const wrapped = wrapWithProviderBlock('resource "aws_instance" "x" {\n}')
+      expect(wrapped).not.toContain('endpoints {')
+    })
+
+    it('redirects every service endpoint to TERRAFORM_AWS_ENDPOINT when set, for LocalStack', () => {
+      process.env.TERRAFORM_AWS_ENDPOINT = 'http://localstack:4566'
+      const wrapped = wrapWithProviderBlock('resource "aws_instance" "x" {\n}')
+
+      expect(wrapped).toContain('endpoints {')
+      for (const service of ['ec2', 'rds', 'ecs', 'lambda', 'elasticache']) {
+        const pattern = new RegExp(`${service}\\s*=\\s*"http://localstack:4566"`)
+        expect(wrapped).toMatch(pattern)
+      }
     })
   })
 })

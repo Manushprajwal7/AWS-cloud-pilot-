@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { simulationStore } from '@/lib/simulation/simulation-store'
+import { connectionManager } from '@/lib/monitoring/connection-manager'
 
 export const runtime = 'nodejs'
 
-/** GET /api/simulation/resources — list every simulated resource. */
+/** GET /api/simulation/resources — list every resource from whichever source is currently active (simulation, a connected monitoring backend, or empty). */
 export async function GET(): Promise<NextResponse> {
-  return NextResponse.json({ resources: simulationStore.listResources() })
+  return NextResponse.json({ resources: connectionManager.getActiveStore().listResources() })
 }

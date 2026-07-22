@@ -28,8 +28,25 @@ export async function verificationNode(state: GraphState): Promise<GraphStateUpd
     throw new Error('verificationWorker: missing required state — terraformApplyWorker must run first')
   }
 
-  const currentResource = simulationStore.getResource(resource.id) ?? resource
+  let currentResource = simulationStore.getResource(resource.id) ?? resource
   const action = remediationPlan.action
+
+  // terraformApplyWorker's simulated apply only ever changes
+  // configuration/cost/status — it never touches metrics, which is exactly
+  // what checkOriginalAnomalyResolved below checks. A successful apply means
+  // the underlying issue is fixed, so snap the resource back to the NORMAL
+  // baseline here, before any checks run, via the same activateScenario used
+  // by instant scenario changes elsewhere — it already broadcasts through
+  // simulationStore.subscribe() to every dashboard page watching this
+  // resource. STOP/SCHEDULE intentionally leave the resource stopped rather
+  // than "running normally", so their status is restored after the clear.
+  if (!applyError) {
+    const statusBeforeClear = currentResource.status
+    currentResource = simulationStore.activateScenario(currentResource.id, 'NORMAL')
+    if (action === 'STOP' || action === 'SCHEDULE') {
+      currentResource = simulationStore.updateResource(currentResource.id, { status: statusBeforeClear })
+    }
+  }
 
   const checks: CheckResult[] = [
     { name: 'terraform_apply_succeeded', passed: !applyError, details: applyError ? applyError.slice(0, 300) : 'apply succeeded' },
@@ -54,5 +71,13 @@ export async function verificationNode(state: GraphState): Promise<GraphStateUpd
     })),
   })
 
-  return { verificationResult: { passed, checks }, resource: currentResource }
+  // Clears the error terraformApplyWorker may have set on a failed apply:
+  // verificationWorker itself always completes successfully as a node (it
+  // just finished producing a real check report, including the
+  // terraform_apply_succeeded check above) — routeAfterVerification must
+  // see state.error as falsy so it reaches its own passed/failed branch
+  // (-> calculateRealizedSavings / rollback) instead of routeAfterVerification's
+  // generic `if (state.error) return 'audit'` guard short-circuiting straight
+  // to audit and skipping rollback whenever the apply it's reporting on failed.
+  return { verificationResult: { passed, checks }, resource: currentResource, error: null }
 }

@@ -56,7 +56,7 @@ export default function CostOverviewPage() {
   return (
     <div className="flex h-screen w-screen bg-paper overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col ml-56 overflow-hidden">
+      <div className="flex-1 flex flex-col ml-60 overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto pt-16">
           <div className="w-full px-6 py-6 space-y-6">
@@ -74,7 +74,7 @@ export default function CostOverviewPage() {
 
             {/* Summary Cards */}
             <div className="grid grid-cols-3 gap-6">
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="w-10 h-10 bg-signal-soft rounded-lg flex items-center justify-center">
                     <DollarSign className="w-5 h-5 text-signal" />
@@ -85,7 +85,7 @@ export default function CostOverviewPage() {
                 <p className="text-sm text-graphite mt-3">Projected from current live usage</p>
               </div>
 
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="w-10 h-10 bg-info-soft rounded-lg flex items-center justify-center">
                     <BarChart3 className="w-5 h-5 text-info" />
@@ -96,7 +96,7 @@ export default function CostOverviewPage() {
                 <p className="text-sm text-graphite mt-3">Across {resources.length} resource{resources.length === 1 ? '' : 's'}</p>
               </div>
 
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="w-10 h-10 bg-ok-soft rounded-lg flex items-center justify-center">
                     <PieChart className="w-5 h-5 text-ok" />
@@ -110,7 +110,7 @@ export default function CostOverviewPage() {
 
             <div className="grid grid-cols-2 gap-6">
               {/* Cost by Service */}
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-ink mb-4">Cost by Service</h3>
                 <div className="space-y-3">
                   {costAnalysis.byService.map((item) => (
@@ -135,7 +135,7 @@ export default function CostOverviewPage() {
               </div>
 
               {/* Cost by Environment */}
-              <div className="bg-panel rounded-lg border border-hairline p-6">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-ink mb-4">Cost by Environment</h3>
                 <div className="space-y-3">
                   {costAnalysis.byEnvironment.map((item, idx) => {
@@ -163,7 +163,7 @@ export default function CostOverviewPage() {
             </div>
 
             {/* Cost Trends Table */}
-            <div className="bg-panel rounded-lg border border-hairline overflow-hidden">
+            <div className="bg-panel rounded-lg border border-hairline shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-hairline">
                 <h3 className="text-lg font-semibold text-ink">Top Cost Drivers</h3>
               </div>

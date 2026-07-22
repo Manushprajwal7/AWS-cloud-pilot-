@@ -146,7 +146,7 @@ export function InfrastructureTable() {
   }, [resources, search, sortBy, sortOrder])
 
   return (
-    <div className="bg-panel border border-hairline overflow-hidden">
+    <div className="bg-panel border border-hairline shadow-sm overflow-hidden">
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-hairline flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">

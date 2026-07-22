@@ -14,7 +14,7 @@
 import type { SimulatedCloudResource } from '@/lib/simulation/types'
 import { recommendRightsizing, recommendScaleIn, recommendScaleOut, type RemediationAction } from '@/lib/financial/rightsizing'
 import { requiredProvidersBlock } from './provider-allowlist'
-import { RESOURCE_TYPE_BY_SERVICE, type GeneratedTerraform, type TerraformResourceType } from './types'
+import { RESOURCE_TYPE_BY_SERVICE, type GeneratedTerraform } from './types'
 
 export class UnsupportedRemediationError extends Error {
   constructor(action: RemediationAction, service: string) {
@@ -40,10 +40,18 @@ function tagsBlock(tags: Record<string, string>): string {
   return `  tags = {\n${lines.join('\n')}\n  }`
 }
 
+/**
+ * Amazon Linux 2 AMI (us-east-1), pinned rather than resolved via a live
+ * `data "aws_ami"` lookup — the sandbox plan step runs with no AWS
+ * credentials and no network (see lib/terraform/sandbox.ts), so a real
+ * data-source query would always fail terraform plan.
+ */
+const PINNED_EC2_AMI_ID = 'ami-0c101f26f147fa7fd'
+
 function baseAttributes(resource: SimulatedCloudResource): string[] {
   switch (resource.service) {
     case 'EC2':
-      return [`  instance_type = "${resource.configuration.instanceType ?? 't3.small'}"`, `  ami           = data.aws_ami.approved.id`]
+      return [`  instance_type = "${resource.configuration.instanceType ?? 't3.small'}"`, `  ami           = "${PINNED_EC2_AMI_ID}"`]
     case 'RDS':
       return [`  instance_class = "${resource.configuration.instanceType ?? 'db.t3.medium'}"`, `  engine         = "postgres"`]
     case 'ECS':
@@ -94,7 +102,12 @@ function generateRightsize(resource: SimulatedCloudResource): GeneratedTerraform
 ${attributes.join('\n')}
 }`
 
-  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'RIGHTSIZE' }
+  const changeSummary =
+    `Countering sustained low utilization on ${resource.name} (cpuPercent=${resource.metrics.cpuPercent.toFixed(1)}%, ` +
+    `memoryPercent=${resource.metrics.memoryPercent.toFixed(1)}%) by gracefully downgrading ${sizeAttribute} from ` +
+    `${recommendation.currentInstanceType} to ${recommendation.recommendedInstanceType} — projected savings $${recommendation.monthlySavings.toFixed(2)}/mo.`
+
+  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'RIGHTSIZE', changeSummary }
 }
 
 function generateScaleIn(resource: SimulatedCloudResource): GeneratedTerraform {
@@ -114,7 +127,12 @@ function generateScaleIn(resource: SimulatedCloudResource): GeneratedTerraform {
 ${attributes.join('\n')}
 }`
 
-  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'SCALE_IN' }
+  const changeSummary =
+    `Countering sustained low utilization on ${resource.name} (cpuPercent=${resource.metrics.cpuPercent.toFixed(1)}%) by ` +
+    `gracefully scaling desired_count from ${recommendation.currentCapacity} to ${recommendation.recommendedCapacity} tasks — ` +
+    `one task at a time, never below minCapacity — projected savings $${recommendation.monthlySavings.toFixed(2)}/mo.`
+
+  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'SCALE_IN', changeSummary }
 }
 
 function generateScaleOut(resource: SimulatedCloudResource): GeneratedTerraform {
@@ -134,7 +152,11 @@ function generateScaleOut(resource: SimulatedCloudResource): GeneratedTerraform 
 ${attributes.join('\n')}
 }`
 
-  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'SCALE_OUT' }
+  const changeSummary =
+    `Countering sustained high utilization on ${resource.name} (cpuPercent=${resource.metrics.cpuPercent.toFixed(1)}%) by ` +
+    `scaling desired_count from ${recommendation.currentCapacity} to ${recommendation.recommendedCapacity} tasks — one task at a time, never above maxCapacity.`
+
+  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action: 'SCALE_OUT', changeSummary }
 }
 
 function generateScheduleOrStop(resource: SimulatedCloudResource, action: 'STOP' | 'SCHEDULE'): GeneratedTerraform {
@@ -144,7 +166,14 @@ function generateScheduleOrStop(resource: SimulatedCloudResource, action: 'STOP'
 
   const hcl = buildResourceBlock(resource, [], { ...baseTags(resource), 'cloudpilot:schedule': scheduleTagValue })
 
-  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action }
+  const changeSummary =
+    action === 'STOP'
+      ? `Countering idle/waste on ${resource.name} by tagging it for immediate stop via the external scheduler — Terraform has no ` +
+        `declarative "stop this instance" primitive without a provisioner (banned by security-policy.ts), so this applies a tag an ` +
+        `operator/scheduler acts on rather than an in-place resource mutation.`
+      : `Countering off-hours waste on ${resource.name} by tagging it to stop outside business hours via the external scheduler.`
+
+  return { hcl, resourceType: type, resourceAddress: `${type}.${name}`, action, changeSummary }
 }
 
 /**
@@ -170,27 +199,60 @@ export function generateTerraformForAction(resource: SimulatedCloudResource, act
 }
 
 /**
- * Standard (non-external) AWS data sources a resource block references and
- * that must therefore also be present in the file, or `terraform validate`
- * fails on an undeclared reference. Only aws_instance needs this today
- * (it references data.aws_ami.approved for its ami argument).
+ * The sandbox intentionally runs `terraform plan` with no host AWS
+ * credentials and no network access (see lib/terraform/sandbox.ts) — but
+ * the real `aws` provider still validates its credential source by default
+ * (including an EC2 instance-metadata check that times out with no
+ * network), even for a plan that only creates brand-new resources with no
+ * live API calls. skip_* disables that validation; the credentials
+ * themselves are never embedded here — they're injected as
+ * AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars by the sandbox command
+ * runner instead (lib/terraform/sandbox.ts), exactly as security-policy.ts's
+ * no-credential-references rule requires ("credentials must come from the
+ * environment/instance role, never be embedded in generated code") —
+ * embedding them as HCL attributes here would trip that same policy.
+ *
+ * `changeSummary`, when given, is rendered as a comment header directly
+ * above the resource — the real before/after values and rationale for this
+ * specific remediation, documented in the .tf file itself rather than only
+ * in the UI. generator.ts always splices a `lifecycle { create_before_destroy
+ * = true }` block into the resource too, so the comment's claim about a
+ * graceful, non-destructive change is actually backed by the HCL.
+ *
+ * When TERRAFORM_AWS_ENDPOINT is set (pointing at a LocalStack instance —
+ * see docker-compose.yml's `localstack` service and .env.example), every
+ * service endpoint is redirected there instead of real AWS, so `terraform
+ * apply` actually succeeds against a real (local, free, zero-risk) AWS API
+ * instead of failing authentication against the genuine one. Unset, apply
+ * still genuinely reaches real AWS and fails — this app never has real AWS
+ * write credentials, so that failure is honest, not a bug.
  */
-export function dataBlocksFor(resourceType: TerraformResourceType): string {
-  if (resourceType !== 'aws_instance') return ''
+export function wrapWithProviderBlock(hcl: string, changeSummary?: string): string {
+  const localstackEndpoint = process.env.TERRAFORM_AWS_ENDPOINT
 
-  return `data "aws_ami" "approved" {
-  most_recent = true
-  owners      = ["amazon"]
+  const endpointsBlock = localstackEndpoint
+    ? `
 
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
-}
+  endpoints {
+    ec2         = "${localstackEndpoint}"
+    rds         = "${localstackEndpoint}"
+    ecs         = "${localstackEndpoint}"
+    lambda      = "${localstackEndpoint}"
+    elasticache = "${localstackEndpoint}"
+  }`
+    : ''
 
-`
-}
+  const providerBlock = `provider "aws" {
+  region                      = "us-east-1"
+  skip_credentials_validation = true
+  skip_requesting_account_id  = true
+  skip_metadata_api_check     = true
+  skip_region_validation      = true${endpointsBlock}
+}`
 
-export function wrapWithProviderBlock(hcl: string, resourceType: TerraformResourceType): string {
-  return `${requiredProvidersBlock()}\n\nprovider "aws" {\n  region = "us-east-1"\n}\n\n${dataBlocksFor(resourceType)}${hcl}\n`
+  const header = changeSummary
+    ? `# CloudPilot automated remediation\n# ${changeSummary}\n# lifecycle.create_before_destroy below ensures this change is never applied\n# by destroying the existing resource before its replacement exists.\n${localstackEndpoint ? '# Provider endpoints are redirected to LocalStack (TERRAFORM_AWS_ENDPOINT) so apply runs against a real, local, free AWS API.\n' : ''}\n`
+    : ''
+
+  return `${header}${requiredProvidersBlock()}\n\n${providerBlock}\n\n${hcl}\n`
 }

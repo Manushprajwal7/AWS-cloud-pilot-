@@ -19,20 +19,6 @@ services:
       retries: 10
       start_period: 10s
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-
   # One-shot: applies pending Prisma migrations, then exits. Every other
   # service that touches Postgres waits for this to *succeed*, not just
   # for postgres to be reachable — a reachable-but-unmigrated database is
@@ -48,6 +34,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # A real, local AWS API emulator — free, no real account, no real cost.
+  # terraform apply (lib/terraform/sandbox.ts, allowNetwork: true) targets
+  # this instead of real AWS whenever TERRAFORM_AWS_ENDPOINT is set (see
+  # templates.ts's wrapWithProviderBlock), so apply can genuinely succeed
+  # instead of always failing AWS authentication. EC2 is the only service
+  # this app's Terraform templates currently generate resources for that
+  # actually get applied end-to-end; the other four are enabled too since
+  # LocalStack multiplexes every service through the one edge port anyway.
+  localstack:
+    image: localstack/localstack:latest
+    restart: unless-stopped
+    ports:
+      - '${LOCALSTACK_PORT:-4566}:4566'
+    environment:
+      SERVICES: ec2,rds,ecs,lambda,elasticache,sts
+    healthcheck:
+      test: ['CMD', 'curl', '-sf', 'http://localhost:4566/_localstack/health']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   # The Next.js app. This is also where the real Terraform sandbox runs
   # (lib/terraform/sandbox.ts, invoked from the LangGraph pipeline) — the
@@ -70,16 +78,17 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-cloudpilot}:${POSTGRES_PASSWORD:-cloudpilot}@postgres:5432/${POSTGRES_DB:-cloudpilot}?schema=public
-      REDIS_URL: redis://redis:6379
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      MONITORING_CREDENTIALS_ENCRYPTION_KEY: ${MONITORING_CREDENTIALS_ENCRYPTION_KEY}
+      TERRAFORM_AWS_ENDPOINT: http://localstack:4566
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -87,106 +96,5 @@ services:
       retries: 3
       start_period: 20s
 
-  worker-terraform:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: ['pnpm', 'worker:terraform']
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudpilot}:${POSTGRES_PASSWORD:-cloudpilot}@postgres:5432/${POSTGRES_DB:-cloudpilot}?schema=public
-      REDIS_URL: redis://redis:6379
-      TERRAFORM_WORKER_CONCURRENCY: ${TERRAFORM_WORKER_CONCURRENCY:-2}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f "workers/terraform-worker" || exit 1']
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  worker-simulation:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: ['pnpm', 'worker:simulation']
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudpilot}:${POSTGRES_PASSWORD:-cloudpilot}@postgres:5432/${POSTGRES_DB:-cloudpilot}?schema=public
-      REDIS_URL: redis://redis:6379
-      SIMULATION_WORKER_CONCURRENCY: ${SIMULATION_WORKER_CONCURRENCY:-4}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f "workers/simulation-worker" || exit 1']
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  worker-verification:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: ['pnpm', 'worker:verification']
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudpilot}:${POSTGRES_PASSWORD:-cloudpilot}@postgres:5432/${POSTGRES_DB:-cloudpilot}?schema=public
-      REDIS_URL: redis://redis:6379
-      VERIFICATION_WORKER_CONCURRENCY: ${VERIFICATION_WORKER_CONCURRENCY:-4}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f "workers/verification-worker" || exit 1']
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  worker-audit:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: ['pnpm', 'worker:audit']
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudpilot}:${POSTGRES_PASSWORD:-cloudpilot}@postgres:5432/${POSTGRES_DB:-cloudpilot}?schema=public
-      REDIS_URL: redis://redis:6379
-      AUDIT_WORKER_CONCURRENCY: ${AUDIT_WORKER_CONCURRENCY:-8}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f "workers/audit-worker" || exit 1']
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
 volumes:
   postgres-data:
-  redis-data:

@@ -54,7 +54,7 @@ export function TelemetryPanel() {
   const chartData = toChartPoints(history)
 
   return (
-    <div className="bg-panel border border-hairline">
+    <div className="bg-panel border border-hairline shadow-sm">
       <div className="px-5 py-3.5 border-b border-hairline flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite">Live Telemetry</h3>
         <div className="flex items-center gap-3">
@@ -111,7 +111,7 @@ export function TelemetryPanel() {
         )}
 
         {resources.length === 0 && status !== 'connecting' ? (
-          <ChartEmptyState message="No resources are being simulated yet." />
+          <ChartEmptyState message="No monitoring instance connected. Start simulation or connect a monitoring instance." />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <MetricChart

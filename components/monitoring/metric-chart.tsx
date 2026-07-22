@@ -121,7 +121,7 @@ export function MetricChart({
   }
 
   return (
-    <figure className="bg-panel border border-hairline p-4" aria-label={`${title} chart`}>
+    <figure className="bg-panel border border-hairline shadow-sm p-4" aria-label={`${title} chart`}>
       <figcaption className="flex items-center justify-between mb-2">
         <h4 className="text-[10px] font-mono uppercase tracking-wider text-graphite">{title}</h4>
         {latest && (

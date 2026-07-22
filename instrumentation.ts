@@ -28,4 +28,10 @@ export async function register(): Promise<void> {
   console.log(
     `[simulation] tick engine started (${tickEngine.getTickIntervalMs()}ms) with ${scenarioScheduler.describe().length} scheduled resource programs`,
   )
+
+  // Restores a real monitoring connection persisted from a previous process
+  // (Postgres-backed — never localStorage). Never throws: an expired/invalid
+  // stored credential just leaves the app on simulation, logged as a warning.
+  const { connectionManager } = await import('@/lib/monitoring/connection-manager')
+  await connectionManager.restoreFromDatabase()
 }

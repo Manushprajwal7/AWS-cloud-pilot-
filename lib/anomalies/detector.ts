@@ -7,7 +7,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { simulationStore, type SimulationStore } from '@/lib/simulation/simulation-store'
+import { simulationStore } from '@/lib/simulation/simulation-store'
+import type { ReadableResourceStore } from '@/lib/monitoring/types'
 import { ANOMALY_RULES } from './rules'
 import { ALL_ANOMALY_TYPES, type Anomaly, type AnomalyEvent, type AnomalyListener, type AnomalyType } from './types'
 
@@ -34,6 +35,16 @@ export interface AnomalyDetector {
   evaluateResource(resourceId: string): Anomaly[]
   evaluateAll(): Anomaly[]
   subscribe(listener: AnomalyListener): () => void
+  /**
+   * Switch which store this detector reads/subscribes to (e.g. when a real
+   * monitoring backend connects or disconnects — see
+   * lib/monitoring/connection-manager.ts). Unsubscribes from the old store,
+   * clears every anomaly evaluated against it (anomalies detected against
+   * one data source are meaningless once a different source replaces it),
+   * and subscribes to the new one. External subscribers (SSE routes) keep
+   * their own connection — only the internal store binding changes.
+   */
+  rebind(newStore: ReadableResourceStore): void
   /** Unsubscribe from the simulation store. Mainly for test cleanup. */
   stop(): void
 }
@@ -52,7 +63,8 @@ function keyFor(resourceId: string, type: AnomalyType): string {
  * this factory exists so tests don't share state with each other or with
  * the real simulation store.
  */
-export function createAnomalyDetector(store: SimulationStore): AnomalyDetector {
+export function createAnomalyDetector(initialStore: ReadableResourceStore): AnomalyDetector {
+  let store = initialStore
   const anomalies = new Map<string, Anomaly>()
   // resourceId::type -> the id of that pairing's current active anomaly, for O(1) dedup.
   const activeByKey = new Map<string, string>()
@@ -192,11 +204,28 @@ export function createAnomalyDetector(store: SimulationStore): AnomalyDetector {
     }
   }
 
-  const unsubscribeFromStore = store.subscribe((event) => {
-    if (event.type === 'metric_snapshot_saved' || event.type === 'resource_reset') {
-      evaluateResource(event.resourceId)
-    }
-  })
+  function subscribeToStore(target: ReadableResourceStore): () => void {
+    return target.subscribe((event) => {
+      // ReadableResourceStore's event type doesn't include 'resource_reset'
+      // for non-simulation stores (only simulationStore ever fires it), but
+      // TypeScript already narrows this from SimulationStoreEvent — both
+      // event kinds this detector cares about are covered either way.
+      if (event.type === 'metric_snapshot_saved' || event.type === 'resource_reset') {
+        evaluateResource(event.resourceId)
+      }
+    })
+  }
+
+  let unsubscribeFromStore = subscribeToStore(store)
+
+  function rebind(newStore: ReadableResourceStore): void {
+    if (newStore === store) return
+    unsubscribeFromStore()
+    store = newStore
+    anomalies.clear()
+    activeByKey.clear()
+    unsubscribeFromStore = subscribeToStore(store)
+  }
 
   function stop(): void {
     unsubscribeFromStore()
@@ -209,6 +238,7 @@ export function createAnomalyDetector(store: SimulationStore): AnomalyDetector {
     evaluateResource,
     evaluateAll,
     subscribe,
+    rebind,
     stop,
   }
 }

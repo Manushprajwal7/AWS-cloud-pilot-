@@ -100,6 +100,83 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+export interface CallGroqChatStreamOptions {
+  messages: GroqChatMessage[]
+  temperature?: number
+  maxTokens?: number
+  /** Called with each incremental content delta as it arrives, in order. */
+  onToken: (delta: string) => void
+}
+
+/**
+ * Streaming variant of callGroqChat: sets `stream: true` and parses Groq's
+ * own SSE response (`data: {...}\n\n`, terminated by `data: [DONE]`),
+ * invoking onToken per content delta and returning the fully concatenated
+ * text once the stream ends. Single attempt, no retry — a mid-stream
+ * failure has already partially delivered tokens to the caller, so there's
+ * nothing clean to retry; callers decide how to handle a thrown error.
+ */
+export async function callGroqChatStream(options: CallGroqChatStreamOptions): Promise<string> {
+  const apiKey = getGroqApiKey()
+
+  const response = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: getGroqModel(),
+      messages: options.messages,
+      temperature: options.temperature ?? 0,
+      max_tokens: options.maxTokens ?? 2500,
+      stream: true,
+    }),
+  })
+
+  if (!response.ok || !response.body) {
+    const errorText = await response.text().catch(() => '')
+    throw new GroqRequestError(`Groq API error: ${response.status} - ${errorText}`, response.status)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let full = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+
+    for (const frame of frames) {
+      const line = frame.trim()
+      if (!line.startsWith('data:')) continue
+
+      const payload = line.slice('data:'.length).trim()
+      if (payload === '[DONE]') continue
+
+      let parsed: GroqChatCompletionResponse & { choices?: Array<{ delta?: { content?: string } }> }
+      try {
+        parsed = JSON.parse(payload)
+      } catch {
+        continue
+      }
+
+      const delta = parsed.choices?.[0]?.delta?.content
+      if (delta) {
+        full += delta
+        options.onToken(delta)
+      }
+    }
+  }
+
+  return full
+}
+
 /**
  * Call the Groq chat-completions API with bounded retries on transient
  * failures (429 rate limiting, 5xx server errors, network errors).

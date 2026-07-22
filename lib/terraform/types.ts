@@ -28,6 +28,15 @@ export interface GeneratedTerraform {
   resourceType: TerraformResourceType
   resourceAddress: string
   action: RemediationAction
+  /**
+   * Real before/after values driving this specific change (e.g. "instance_type:
+   * m5.xlarge (CPU 8.0%, memory 18.0%) -> m5.large") — never fabricated,
+   * computed from the same lib/financial/rightsizing.ts recommendation that
+   * produced the attribute change itself. Rendered as a comment header in
+   * the generated .tf file (see generator.ts) so the graceful-downgrade
+   * rationale is documented directly in the code, not just in the UI.
+   */
+  changeSummary: string
 }
 
 export interface NormalizedTerraform {

@@ -79,7 +79,7 @@ export function RecentActivity() {
   const visibleEvents = cleared ? [] : events;
 
   return (
-    <div className="bg-panel border border-hairline overflow-hidden h-full flex flex-col">
+    <div className="bg-panel border border-hairline shadow-sm overflow-hidden h-full flex flex-col">
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-hairline">
         <div className="flex items-center gap-2">
           <span className="relative flex h-1.5 w-1.5 flex-shrink-0">

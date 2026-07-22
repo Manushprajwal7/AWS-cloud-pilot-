@@ -71,7 +71,7 @@ export function GraphRunsPanel() {
   }, [refreshToken])
 
   return (
-    <div className="bg-panel border border-hairline p-5">
+    <div className="bg-panel border border-hairline shadow-sm p-5">
       <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite mb-3">Graph Runs</h3>
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-12 md:col-span-5">

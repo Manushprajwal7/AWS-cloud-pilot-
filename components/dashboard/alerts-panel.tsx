@@ -38,7 +38,7 @@ export function AlertsPanel() {
   const sorted = [...anomalies].sort((a, b) => b.lastObservedAt.localeCompare(a.lastObservedAt))
 
   return (
-    <div className="bg-panel border border-hairline p-5 h-full">
+    <div className="bg-panel border border-hairline shadow-sm p-5 h-full">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-[10px] font-mono uppercase tracking-wider text-graphite">Recent Anomalies</h3>
         <ConnectionStatusBadge status={status} onReconnect={reconnect} />

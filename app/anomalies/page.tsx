@@ -69,7 +69,7 @@ export default function AnomaliesPage() {
   return (
     <div className="flex h-screen w-screen bg-paper overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col ml-56 overflow-hidden">
+      <div className="flex-1 flex flex-col ml-60 overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto pt-16">
           <div className="w-full px-6 py-6 space-y-6">
@@ -81,23 +81,23 @@ export default function AnomaliesPage() {
 
             {/* Summary Cards */}
             <div className="grid grid-cols-5 gap-4">
-              <div className="bg-panel rounded-lg border border-hairline p-4">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Total Anomalies</p>
                 <p className="text-2xl font-bold text-ink">{summary.total}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-danger/25 bg-danger-soft p-4">
+              <div className="bg-panel rounded-lg border border-danger/25 bg-danger-soft shadow-sm p-4">
                 <p className="text-sm text-danger font-medium mb-2">Critical</p>
                 <p className="text-2xl font-bold text-danger">{summary.critical}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-danger/25 p-4">
+              <div className="bg-panel rounded-lg border border-danger/25 shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">High</p>
                 <p className="text-2xl font-bold text-danger">{summary.high}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-signal/25 p-4">
+              <div className="bg-panel rounded-lg border border-signal/25 shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Medium</p>
                 <p className="text-2xl font-bold text-signal">{summary.medium}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-hairline p-4">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Estimated Waste</p>
                 <p className="text-lg font-bold text-ink">${summary.totalWaste.toFixed(0)}/mo</p>
               </div>
@@ -113,7 +113,7 @@ export default function AnomaliesPage() {
                     onClick={() => setSeverityFilter(severity)}
                     className={`px-4 py-2 rounded-lg font-medium transition-colors capitalize ${
                       severityFilter === severity
-                        ? 'bg-signal text-white'
+                        ? 'bg-signal text-ink font-semibold'
                         : 'bg-panel border border-hairline text-graphite hover:bg-subtle'
                     }`}
                   >
@@ -125,7 +125,7 @@ export default function AnomaliesPage() {
 
             {/* Anomalies List */}
             {filtered.length === 0 ? (
-              <div className="bg-panel rounded-lg border border-hairline p-8 text-center">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-8 text-center">
                 <CheckCircle2 className="w-12 h-12 text-ok mx-auto mb-3" />
                 <p className="text-lg font-semibold text-ink">No anomalies detected</p>
                 <p className="text-graphite mt-1">Your infrastructure is operating normally</p>
@@ -141,7 +141,7 @@ export default function AnomaliesPage() {
                     <div
                       key={anomaly.id}
                       id={anomaly.id}
-                      className={`rounded-lg border transition-all ${config.bgColor} ${config.borderColor} overflow-hidden scroll-mt-20`}
+                      className={`rounded-lg border shadow-sm transition-all ${config.bgColor} ${config.borderColor} overflow-hidden scroll-mt-20`}
                     >
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : anomaly.id)}

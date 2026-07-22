@@ -4,8 +4,10 @@ import { Search, Bell, ChevronDown, Menu, Server, AlertTriangle } from 'lucide-r
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SimulationToggle } from './simulation-toggle'
+import { MonitoringConnectButton } from './monitoring-connect-button'
 import { useAnomalies } from '@/hooks/use-anomalies'
 import { useResourceList } from '@/hooks/use-resource-list'
+import { useMonitoringStatus } from '@/hooks/use-monitoring-status'
 
 interface SearchResult {
   id: string
@@ -28,6 +30,7 @@ export function Header({ fullWidth = false, showBrand = false }: { fullWidth?: b
 
   const { resources } = useResourceList()
   const { anomalies } = useAnomalies()
+  const { status: monitoringStatus } = useMonitoringStatus()
 
   const alertCount = useMemo(
     () => anomalies.filter((a) => a.severity === 'critical' || a.severity === 'high').length,
@@ -99,7 +102,7 @@ export function Header({ fullWidth = false, showBrand = false }: { fullWidth?: b
 
   return (
     <header
-      className={`fixed top-0 right-0 h-16 bg-panel border-b border-hairline flex items-center justify-between px-6 z-40 transition-all duration-300 ${
+      className={`fixed top-0 right-0 h-16 bg-panel border-b border-hairline shadow-[0_1px_3px_rgba(0,0,0,0.06)] flex items-center justify-between px-6 z-40 transition-all duration-300 ${
         fullWidth ? 'left-0' : 'left-60'
       }`}
     >
@@ -170,9 +173,10 @@ export function Header({ fullWidth = false, showBrand = false }: { fullWidth?: b
         )}
       </div>
 
-      {/* Simulation Control */}
-      <div className="ml-4">
-        <SimulationToggle />
+      {/* Simulation / Monitoring Control */}
+      <div className="ml-4 flex items-center gap-2">
+        {!monitoringStatus.connected && <SimulationToggle />}
+        <MonitoringConnectButton />
       </div>
 
       {/* Right Section */}

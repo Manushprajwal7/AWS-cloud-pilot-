@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sidebar } from '@/components/dashboard/sidebar'
 import { Header } from '@/components/dashboard/header'
 import { Shield, Plus, Edit2, Trash2, ToggleRight, ToggleLeft, X } from 'lucide-react'
+import { ChartEmptyState, ChartErrorState, ChartLoadingState } from '@/components/monitoring/chart-states'
 
 interface Policy {
   id: string
@@ -14,56 +15,7 @@ interface Policy {
   rules: string[]
 }
 
-const MOCK_POLICIES: Policy[] = [
-  {
-    id: '1',
-    name: 'Maximum Cost Per Resource',
-    description: 'Enforce a maximum monthly cost limit per resource',
-    category: 'cost',
-    enabled: true,
-    rules: ['$500/month maximum per resource', 'Alert on 80% threshold', 'Auto-shutdown on 100%'],
-  },
-  {
-    id: '2',
-    name: 'Production Environment Protection',
-    description: 'Restrict changes to production resources',
-    category: 'security',
-    enabled: true,
-    rules: ['Require manual approval', 'Limit to 2AM-6AM changes', 'Enforce backup before changes'],
-  },
-  {
-    id: '3',
-    name: 'Unused Resource Cleanup',
-    description: 'Automatically remove resources with zero utilization',
-    category: 'compliance',
-    enabled: true,
-    rules: ['30 days of zero CPU usage', '0% memory utilization', 'Auto-terminate unless tagged keep-alive'],
-  },
-  {
-    id: '4',
-    name: 'Reserved Instance Optimization',
-    description: 'Automatically purchase RIs for long-running resources',
-    category: 'cost',
-    enabled: false,
-    rules: ['Analyze 90-day patterns', 'Purchase 3-year RIs for 95%+ running', 'Coverage target: 80%+'],
-  },
-  {
-    id: '5',
-    name: 'Encryption Requirement',
-    description: 'Ensure all data is encrypted at rest and in transit',
-    category: 'security',
-    enabled: true,
-    rules: ['Enforce TLS 1.2+', 'Require KMS encryption', 'AES-256 minimum'],
-  },
-  {
-    id: '6',
-    name: 'Auto-Scaling Policies',
-    description: 'Enable auto-scaling for appropriate workloads',
-    category: 'performance',
-    enabled: true,
-    rules: ['Min 2 instances in prod', 'Scale up at 70% CPU', 'Scale down at 20% CPU', 'Max instances: 10'],
-  },
-]
+type LoadState = 'loading' | 'ready' | 'error' | 'db_unavailable'
 
 const CATEGORY_COLOR: Record<string, string> = {
   cost: 'bg-signal-soft text-signal',
@@ -84,14 +36,50 @@ interface PolicyFormState {
 const EMPTY_FORM: PolicyFormState = { name: '', description: '', category: 'cost', rulesText: '' }
 
 export default function PoliciesPage() {
-  const [policies, setPolicies] = useState<Policy[]>(MOCK_POLICIES)
+  const [policies, setPolicies] = useState<Policy[]>([])
+  const [state, setState] = useState<LoadState>('loading')
+  const [refreshToken, setRefreshToken] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<PolicyFormState>(EMPTY_FORM)
   const [modalOpen, setModalOpen] = useState(false)
 
-  const togglePolicy = (id: string) => {
+  useEffect(() => {
+    let cancelled = false
+
+    async function load(): Promise<void> {
+      try {
+        const response = await fetch('/api/policies')
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await response.json()
+        if (cancelled) return
+        if (!data.dbAvailable) {
+          setState('db_unavailable')
+          return
+        }
+        setPolicies(data.policies)
+        setState('ready')
+      } catch {
+        if (!cancelled) setState('error')
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshToken])
+
+  const togglePolicy = async (id: string) => {
+    const target = policies.find((p) => p.id === id)
+    if (!target) return
     setPolicies(policies.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p)))
+    const response = await fetch(`/api/policies/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !target.enabled }),
+    })
+    if (!response.ok) setPolicies(policies)
   }
 
   const openCreate = () => {
@@ -111,13 +99,15 @@ export default function PoliciesPage() {
     setModalOpen(true)
   }
 
-  const deletePolicy = (id: string) => {
+  const deletePolicy = async (id: string) => {
     if (!window.confirm('Delete this policy? This cannot be undone.')) return
-    setPolicies(policies.filter((p) => p.id !== id))
+    const response = await fetch(`/api/policies/${id}`, { method: 'DELETE' })
+    if (!response.ok) return
+    setPolicies((items) => items.filter((p) => p.id !== id))
     if (expandedId === id) setExpandedId(null)
   }
 
-  const submitForm = () => {
+  const submitForm = async () => {
     if (!form.name.trim()) return
     const rules = form.rulesText
       .split('\n')
@@ -125,23 +115,25 @@ export default function PoliciesPage() {
       .filter(Boolean)
 
     if (editingId) {
-      setPolicies(
-        policies.map((p) =>
-          p.id === editingId
-            ? { ...p, name: form.name, description: form.description, category: form.category, rules }
-            : p
-        )
-      )
-    } else {
-      const newPolicy: Policy = {
-        id: crypto.randomUUID(),
-        name: form.name,
-        description: form.description,
-        category: form.category,
-        enabled: true,
-        rules,
+      const response = await fetch(`/api/policies/${editingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name, description: form.description, category: form.category, rules }),
+      })
+      if (response.ok) {
+        const { policy } = await response.json()
+        setPolicies((items) => items.map((p) => (p.id === editingId ? policy : p)))
       }
-      setPolicies([newPolicy, ...policies])
+    } else {
+      const response = await fetch('/api/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name, description: form.description, category: form.category, rules }),
+      })
+      if (response.ok) {
+        const { policy } = await response.json()
+        setPolicies((items) => [policy, ...items])
+      }
     }
 
     setModalOpen(false)
@@ -160,7 +152,7 @@ export default function PoliciesPage() {
   return (
     <div className="flex h-screen w-screen bg-paper overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col ml-56 overflow-hidden">
+      <div className="flex-1 flex flex-col ml-60 overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto pt-16">
           <div className="w-full px-6 py-6 space-y-6">
@@ -172,7 +164,7 @@ export default function PoliciesPage() {
               </div>
               <button
                 onClick={openCreate}
-                className="flex items-center gap-2 px-4 py-2 bg-signal hover:bg-signal text-white rounded-lg font-medium transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-signal hover:bg-signal/90 text-ink font-semibold rounded-lg transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Create Policy
@@ -181,34 +173,44 @@ export default function PoliciesPage() {
 
             {/* Summary Stats */}
             <div className="grid grid-cols-5 gap-4">
-              <div className="bg-panel rounded-lg border border-hairline p-4">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Total Policies</p>
                 <p className="text-2xl font-bold text-ink">{policies.length}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-ok/25 bg-ok-soft p-4">
+              <div className="bg-panel rounded-lg border border-ok/25 bg-ok-soft shadow-sm p-4">
                 <p className="text-sm text-ok font-medium mb-2">Enabled</p>
                 <p className="text-2xl font-bold text-ok">{enabledCount}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-hairline p-4">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Security</p>
                 <p className="text-2xl font-bold text-ink">{categoryCount.security}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-hairline p-4">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Cost</p>
                 <p className="text-2xl font-bold text-ink">{categoryCount.cost}</p>
               </div>
-              <div className="bg-panel rounded-lg border border-hairline p-4">
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
                 <p className="text-sm text-graphite mb-2">Compliance</p>
                 <p className="text-2xl font-bold text-ink">{categoryCount.compliance}</p>
               </div>
             </div>
 
             {/* Policies List */}
-            {policies.length === 0 ? (
-              <div className="bg-panel rounded-lg border border-hairline p-8 text-center">
-                <Shield className="w-12 h-12 text-graphite/50 mx-auto mb-3" />
-                <p className="text-lg font-semibold text-ink">No policies configured</p>
-                <p className="text-graphite mt-1">Create one to get started</p>
+            {state === 'loading' ? (
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-8">
+                <ChartLoadingState heightClassName="h-40" />
+              </div>
+            ) : state === 'error' ? (
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-8">
+                <ChartErrorState message="Unable to load policies." onRetry={() => setRefreshToken((t) => t + 1)} heightClassName="h-40" />
+              </div>
+            ) : state === 'db_unavailable' ? (
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-8">
+                <ChartErrorState message="Database unavailable — policies require Postgres to be configured." heightClassName="h-40" />
+              </div>
+            ) : policies.length === 0 ? (
+              <div className="bg-panel rounded-lg border border-hairline shadow-sm p-8 text-center">
+                <ChartEmptyState message="No policies configured yet. Create one to get started." heightClassName="h-40" />
               </div>
             ) : (
               <div className="space-y-3">
@@ -216,7 +218,7 @@ export default function PoliciesPage() {
                   const isExpanded = expandedId === policy.id
 
                   return (
-                    <div key={policy.id} className="bg-panel rounded-lg border border-hairline overflow-hidden transition-all hover:border-signal/40">
+                    <div key={policy.id} className="bg-panel rounded-lg border border-hairline shadow-sm overflow-hidden transition-all hover:border-signal/40 hover:shadow-md">
                       <div className="px-6 py-4">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
@@ -290,7 +292,7 @@ export default function PoliciesPage() {
             )}
 
             {/* Policy Categories */}
-            <div className="bg-panel rounded-lg border border-hairline p-6">
+            <div className="bg-panel rounded-lg border border-hairline shadow-sm p-6">
               <h3 className="text-lg font-semibold text-ink mb-4">Policy Categories</h3>
               <div className="grid grid-cols-2 gap-4">
                 {Object.entries(CATEGORY_COLOR).map(([category, color]) => (
@@ -378,7 +380,7 @@ export default function PoliciesPage() {
               <button
                 onClick={submitForm}
                 disabled={!form.name.trim()}
-                className="px-4 py-2 text-sm font-medium bg-signal hover:bg-signal disabled:opacity-50 disabled:hover:bg-signal text-white rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold bg-signal hover:bg-signal/90 disabled:opacity-50 text-ink rounded-lg transition-colors"
               >
                 {editingId ? 'Save Changes' : 'Create Policy'}
               </button>

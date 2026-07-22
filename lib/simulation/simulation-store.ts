@@ -16,6 +16,7 @@ import type {
   SimulationStoreEvent,
   SimulationStoreListener,
 } from './types'
+import type { ReadableResourceStore } from '@/lib/monitoring/types'
 
 const HISTORY_LIMIT_PER_RESOURCE = 500
 
@@ -43,7 +44,7 @@ function clone<T>(value: T): T {
   return structuredClone(value)
 }
 
-export interface SimulationStore {
+export interface SimulationStore extends ReadableResourceStore {
   listResources(): SimulatedCloudResource[]
   getResource(id: string): SimulatedCloudResource | undefined
   updateResource(id: string, updates: Partial<Omit<SimulatedCloudResource, 'id'>>): SimulatedCloudResource

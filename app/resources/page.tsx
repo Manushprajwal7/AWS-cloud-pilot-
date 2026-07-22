@@ -144,7 +144,7 @@ function ResourcesPageInner() {
   return (
     <div className="flex h-screen w-screen bg-paper overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col ml-56 overflow-hidden">
+      <div className="flex-1 flex flex-col ml-60 overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto pt-16">
           <div className="w-full px-6 py-6 space-y-6">
@@ -161,7 +161,7 @@ function ResourcesPageInner() {
             </div>
 
             {/* Search Bar */}
-            <div className="bg-panel rounded-lg border border-hairline p-4">
+            <div className="bg-panel rounded-lg border border-hairline shadow-sm p-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-graphite" />
                 <input

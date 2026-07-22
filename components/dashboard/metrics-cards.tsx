@@ -81,7 +81,7 @@ export function MetricsCards() {
   }
 
   return (
-    <div className="grid grid-cols-6 gap-px bg-hairline border border-hairline mb-6">
+    <div className="grid grid-cols-6 gap-px bg-hairline border border-hairline shadow-sm mb-6">
       {/* Total Monthly Spend */}
       <div className="bg-panel p-4 h-full min-h-52 flex flex-col">
         <div className="flex items-start justify-between mb-4">

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { simulationStore } from '@/lib/simulation/simulation-store'
+import { connectionManager } from '@/lib/monitoring/connection-manager'
 import { anomalyDetector } from '@/lib/anomalies/detector'
 import { prisma } from '@/lib/db/client'
 import { enrichAnomaly } from '@/app/api/anomalies/enrich'
@@ -17,15 +17,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /**
  * GET /api/dashboard/summary — real aggregate figures for the dashboard.
- * Spend/waste/anomaly counts come from the in-memory simulation/anomaly
- * stores (always available, same source MetricsCards already uses).
- * Savings and run counts come from Postgres; if the database isn't
- * reachable in this environment, those fields come back null with
- * `dbAvailable: false` rather than a fabricated number or a hard 500 —
- * the rest of the summary is still real and still returned.
+ * Spend/waste/anomaly counts come from whichever resource store is
+ * currently active (a connected monitoring backend, the simulation engine,
+ * or empty — see lib/monitoring/connection-manager.ts), the same source
+ * MetricsCards already uses via /api/simulation/stream. Savings and run
+ * counts come from Postgres; if the database isn't reachable in this
+ * environment, those fields come back null with `dbAvailable: false` rather
+ * than a fabricated number or a hard 500 — the rest of the summary is still
+ * real and still returned.
  */
 export async function GET(): Promise<Response> {
-  const resources = simulationStore.listResources()
+  const resources = connectionManager.getActiveStore().listResources()
   const activeAnomalies = anomalyDetector.listAnomalies({ status: 'active' }).map(enrichAnomaly)
   const resolvedAnomalies = anomalyDetector.listAnomalies({ status: 'resolved' })
 

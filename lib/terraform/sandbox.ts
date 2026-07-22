@@ -45,6 +45,27 @@ export interface RunSandboxCommandOptions {
   onStderr?: (chunk: string) => void
 }
 
+/**
+ * Obviously-fake credentials the `aws` provider needs *a* value for even
+ * with skip_credentials_validation set (see templates.ts's
+ * wrapWithProviderBlock) — passed as env vars, never embedded in generated
+ * HCL, per security-policy.ts's no-credential-references rule.
+ *
+ * Without TERRAFORM_AWS_ENDPOINT set, `apply` runs with allowNetwork: true
+ * and will genuinely fail authenticating against real AWS with these —
+ * that's correct: this app has no real AWS credentials configured
+ * anywhere, so apply is expected to fail honestly rather than pretend to
+ * succeed. With TERRAFORM_AWS_ENDPOINT set (see templates.ts's
+ * wrapWithProviderBlock and docker-compose.yml's `localstack` service),
+ * every AWS call is redirected to LocalStack instead, which accepts any
+ * credentials — these same mock values work there too, unchanged.
+ */
+const MOCK_AWS_ENV = {
+  AWS_ACCESS_KEY_ID: 'mock_access_key',
+  AWS_SECRET_ACCESS_KEY: 'mock_secret_key',
+  AWS_DEFAULT_REGION: 'us-east-1',
+}
+
 async function runSandboxCommand(options: RunSandboxCommandOptions): Promise<RunCommandResult> {
   const useDocker = await isDockerAvailable()
 
@@ -56,6 +77,13 @@ async function runSandboxCommand(options: RunSandboxCommandOptions): Promise<Run
         'run',
         '--rm',
         ...networkFlags,
+        // Lets a LocalStack instance reached via TERRAFORM_AWS_ENDPOINT=
+        // http://host.docker.internal:<port> resolve from inside this
+        // container even on plain Linux Docker Engine, where that hostname
+        // isn't wired up by default the way it is on Docker Desktop.
+        // Harmless no-op when nothing in the container resolves that name.
+        '--add-host',
+        'host.docker.internal:host-gateway',
         '-v',
         `${options.workspace.path}:/workspace`,
         '-w',
@@ -65,7 +93,7 @@ async function runSandboxCommand(options: RunSandboxCommandOptions): Promise<Run
       ],
       cwd: options.workspace.path,
       timeoutMs: options.timeoutMs,
-      extraEnv: { TF_IN_AUTOMATION: '1', TF_CLI_ARGS: '-no-color' },
+      extraEnv: { TF_IN_AUTOMATION: '1', TF_CLI_ARGS: '-no-color', ...MOCK_AWS_ENV },
       onStdout: options.onStdout,
       onStderr: options.onStderr,
     })
@@ -78,7 +106,7 @@ async function runSandboxCommand(options: RunSandboxCommandOptions): Promise<Run
     args: options.terraformArgs,
     cwd: options.workspace.path,
     timeoutMs: options.timeoutMs,
-    extraEnv: { TF_IN_AUTOMATION: '1', TF_CLI_ARGS: '-no-color' },
+    extraEnv: { TF_IN_AUTOMATION: '1', TF_CLI_ARGS: '-no-color', ...MOCK_AWS_ENV },
     onStdout: options.onStdout,
     onStderr: options.onStderr,
   })

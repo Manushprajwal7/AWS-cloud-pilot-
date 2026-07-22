@@ -3,33 +3,28 @@
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { MetricsCards } from "@/components/dashboard/metrics-cards";
-import { SystemSummary } from "@/components/dashboard/system-summary";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { InfrastructureTable } from "@/components/dashboard/infrastructure-table";
 import { AlertsPanel } from "@/components/dashboard/alerts-panel";
 import { GraphRunsPanel } from "@/components/dashboard/graph-runs-panel";
 import { TelemetryPanel } from "@/components/monitoring/telemetry-panel";
-import { GraphTerminal } from "@/components/graph-terminal";
 
 export default function DashboardPage() {
   return (
-    <div className="flex h-screen w-screen bg-paper overflow-hidden">
+    <div className="flex min-h-screen w-screen bg-paper">
       {/* Sidebar */}
       <Sidebar />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col ml-60 overflow-hidden">
+      <div className="flex-1 flex flex-col ml-60">
         {/* Header */}
         <Header />
 
         {/* Content Area */}
-        <main className="flex-1 overflow-y-auto pt-16">
+        <main className="pt-16">
           <div className="w-full px-6 py-6 space-y-6 max-w-[1600px]">
             {/* Metrics Cards */}
             <MetricsCards />
-
-            {/* Savings, graph-run counts, worker/queue status */}
-            <SystemSummary />
 
             {/* Live Telemetry: resource health, selector, and CPU/memory/network/request/latency/error-rate/cost charts */}
             <TelemetryPanel />
@@ -49,11 +44,6 @@ export default function DashboardPage() {
 
             {/* Graph Execution Visualizer */}
             <GraphRunsPanel />
-
-            {/* LangGraph Agent Terminal */}
-            <div className="bg-panel rounded-sm border border-hairline">
-              <GraphTerminal />
-            </div>
           </div>
         </main>
       </div>
