@@ -44,6 +44,7 @@ export const GRAPH_NODE_NAMES = [
   'terraformPlan',
   'planPolicy',
   'autoApproval',
+  'awaitApproval',
   'terraformApply',
   'verification',
   'rollback',
@@ -60,6 +61,7 @@ export type GraphStatus =
   | 'failed'
   | 'no_anomaly'
   | 'rejected'
+  | 'awaiting_approval'
   | 'applied'
   | 'rolled_back'
 

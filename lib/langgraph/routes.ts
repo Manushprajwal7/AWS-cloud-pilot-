@@ -83,9 +83,15 @@ export function routeAfterPlanPolicy(state: GraphState): 'autoApproval' | 'audit
   return state.error ? 'audit' : 'autoApproval'
 }
 
-export function routeAfterAutoApproval(state: GraphState): 'terraformApply' | 'audit' {
+/**
+ * An approved plan does not auto-apply — it stops at awaitApproval so a
+ * human can review the generated Terraform (issue/impact) and explicitly
+ * click Apply before terraformApplyWorker ever runs. See
+ * lib/langgraph/nodes/await-approval.ts and app/api/graph/runs/[runId]/apply.
+ */
+export function routeAfterAutoApproval(state: GraphState): 'awaitApproval' | 'audit' {
   if (state.error) return 'audit'
-  return state.approvalDecision?.decision === 'approved' ? 'terraformApply' : 'audit'
+  return state.approvalDecision?.decision === 'approved' ? 'awaitApproval' : 'audit'
 }
 
 /**

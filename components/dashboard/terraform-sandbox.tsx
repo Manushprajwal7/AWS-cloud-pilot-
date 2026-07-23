@@ -7,9 +7,12 @@
  * risk/policy/approval, apply logs, correction history, verification,
  * rollback, and final anomaly resolution. Nothing here is a literal/mock
  * value: every field is either "not available yet" (before a run) or
- * sourced from a GraphState the server actually produced. There is no
- * approve/reject control — autoApprovalWorker's decision is final and
- * deterministic; this page only shows what it decided.
+ * sourced from a GraphState the server actually produced. When
+ * autoApprovalWorker approves a plan, the graph stops at awaitApproval
+ * (status 'awaiting_approval') instead of applying automatically — this
+ * page then shows an approval banner with the issue/impact and only calls
+ * POST /api/graph/runs/:runId/apply (or /reject) once a human clicks
+ * through, resuming the exact same run from terraformApplyWorker onward.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -97,7 +100,7 @@ interface ExecutionLogLine {
   status: 'completed' | 'in-progress' | 'error';
 }
 
-type RunStatus = 'idle' | 'running' | 'completed' | 'rejected' | 'failed' | 'applied' | 'rolled_back';
+type RunStatus = 'idle' | 'running' | 'completed' | 'awaiting_approval' | 'rejected' | 'failed' | 'applied' | 'rolled_back';
 
 const NODE_LABELS: Record<string, string> = {
   monitor: 'Reading live resource metrics',
@@ -114,6 +117,7 @@ const NODE_LABELS: Record<string, string> = {
   terraformPlan: 'terraform plan',
   planPolicy: 'Analyzing plan risk',
   autoApproval: 'Evaluating auto-approval policy',
+  awaitApproval: 'Awaiting human approval',
   terraformApply: 'terraform apply',
   verification: 'Verifying remediation outcome',
   rollback: 'Rolling back to previous snapshot',
@@ -193,6 +197,8 @@ export function TerraformSandbox() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [resourceDetails, setResourceDetails] = useState<Record<string, unknown> | null>(null);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [approvalActionPending, setApprovalActionPending] = useState<'apply' | 'reject' | null>(null);
+  const [approvalActionError, setApprovalActionError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -247,6 +253,8 @@ export function TerraformSandbox() {
     setCompletedAt(null);
     setRunId(null);
     setStreamingHcl('');
+    setApprovalActionError(null);
+    setApprovalActionPending(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -308,7 +316,11 @@ export function TerraformSandbox() {
             setFinalState(event.finalState);
             setCompletedAt(new Date().toLocaleString());
             const s = event.finalState.status;
-            setStatus(s === 'rejected' || s === 'failed' || s === 'applied' || s === 'rolled_back' ? s : 'completed');
+            setStatus(
+              s === 'rejected' || s === 'failed' || s === 'applied' || s === 'rolled_back' || s === 'awaiting_approval'
+                ? s
+                : 'completed',
+            );
             return;
           } else if (event.type === 'run_failed') {
             setErrorMessage(event.error);
@@ -328,6 +340,33 @@ export function TerraformSandbox() {
     abortRef.current?.abort();
     setStatus('idle');
     pushLog('Run cancelled by user', 'error');
+  }
+
+  async function decideOnPlan(decision: 'apply' | 'reject'): Promise<void> {
+    if (!runId || !finalState) return;
+    setApprovalActionError(null);
+    setApprovalActionPending(decision);
+    try {
+      const response = await fetch(`/api/graph/runs/${runId}/${decision}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: finalState }),
+      });
+      const body = await response.json().catch(() => ({ error: response.statusText }));
+      if (!response.ok) {
+        throw new Error(body.error || `HTTP ${response.status}`);
+      }
+      const nextFinalState = body.finalState as Record<string, unknown>;
+      setFinalState(nextFinalState);
+      setCompletedAt(new Date().toLocaleString());
+      const s = nextFinalState.status;
+      setStatus(s === 'applied' || s === 'rolled_back' || s === 'rejected' || s === 'failed' ? s : 'completed');
+      pushLog(decision === 'apply' ? 'Terraform apply approved — changes applied' : 'Plan rejected by user');
+    } catch (error) {
+      setApprovalActionError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setApprovalActionPending(null);
+    }
   }
 
   async function startScenario(): Promise<void> {
@@ -436,7 +475,8 @@ export function TerraformSandbox() {
     idle: 'Idle',
     running: 'Running',
     completed: noRemediationNeeded ? 'No action needed' : 'Plan ready',
-    rejected: 'Rejected by policy',
+    awaiting_approval: 'Awaiting your approval',
+    rejected: 'Rejected',
     failed: 'Failed',
     applied: 'Applied',
     rolled_back: 'Rolled back',
@@ -446,6 +486,7 @@ export function TerraformSandbox() {
     idle: 'bg-hairline',
     running: 'bg-signal',
     completed: 'bg-ok',
+    awaiting_approval: 'bg-signal',
     rejected: 'bg-danger',
     failed: 'bg-danger',
     applied: 'bg-info',
@@ -495,6 +536,77 @@ export function TerraformSandbox() {
 
       {/* Signature: the live pipeline rail */}
       <GraphPipelineRail runId={runId} />
+
+      {/* Approval popup banner — gates terraformApply behind an explicit human decision */}
+      {status === 'awaiting_approval' && (
+        <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4">
+          <div className="w-full max-w-3xl border border-signal/40 bg-navy shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-white/10 bg-signal-soft/10 px-5 py-3">
+              <ShieldAlert className="h-4 w-4 text-signal flex-shrink-0" strokeWidth={1.75} />
+              <span className="text-[13px] font-semibold text-white">Approval required before applying Terraform changes</span>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-white/45">Issue</div>
+                <p className="mt-1 text-[13px] text-white/90">
+                  {finalState?.anomaly
+                    ? `Detected ${String((finalState.anomaly as { type: string }).type).replace(/_/g, ' ').toLowerCase()} on ${resourceId}`
+                    : 'Remediation plan generated for ' + resourceId}
+                  {remediationPlan && <> — proposed action: <span className="font-mono text-signal">{remediationPlan.action}</span></>}
+                </p>
+                {remediationPlan?.rationale && <p className="mt-1 text-[12px] text-white/60">{remediationPlan.rationale}</p>}
+              </div>
+
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-white/45">Impact</div>
+                <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-[12px] font-mono text-white/80">
+                  <span>Plan: {planSummary ? `+${planSummary.creates} ~${planSummary.updates} -${planSummary.deletes}` : '—'}</span>
+                  <span>Risk score: {approvalDecision?.analysis.riskScore ?? '—'}/100</span>
+                  {savingsDaily !== null && (
+                    <span className="text-ok">
+                      Savings: ${savingsDaily.toFixed(0)}/day{savingsPercent !== null ? ` (${savingsPercent}%)` : ''}
+                    </span>
+                  )}
+                  {currentDaily !== null && afterDaily !== null && (
+                    <span>
+                      Cost: ${currentDaily.toFixed(0)}/day &rarr; ${afterDaily.toFixed(0)}/day
+                    </span>
+                  )}
+                </div>
+                {security && !security.passed && (
+                  <p className="mt-1 text-[12px] text-danger">{security.findings.length} security finding(s) — review before applying.</p>
+                )}
+              </div>
+
+              {approvalActionError && (
+                <div className="border-l-2 border-danger bg-danger-soft/20 px-3 py-2 text-[12px] text-danger">{approvalActionError}</div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/20 bg-transparent text-white/70 hover:bg-white/10 hover:text-white rounded-sm"
+                  disabled={approvalActionPending !== null}
+                  onClick={() => decideOnPlan('reject')}
+                >
+                  {approvalActionPending === 'reject' ? 'Rejecting…' : 'Reject'}
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-signal hover:bg-signal/90 text-ink font-semibold rounded-sm"
+                  disabled={approvalActionPending !== null}
+                  onClick={() => decideOnPlan('apply')}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  {approvalActionPending === 'apply' ? 'Applying…' : 'Apply Changes'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Finding banner */}
       <div className="flex gap-3 border-l-2 border-signal bg-signal-soft px-5 py-3.5">

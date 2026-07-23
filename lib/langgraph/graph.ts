@@ -5,9 +5,15 @@
  *     -> [diagnose -> calculateImpact -> planRemediation
  *         -> terraformGenerate -> staticSecurity
  *         -> [terraformFormat <-> terraformInit <-> terraformValidate <-> selfCorrection]*
- *         -> terraformPlan -> planPolicy -> autoApproval -> terraformApply
- *         -> verification -> [rollback | calculateRealizedSavings]]
+ *         -> terraformPlan -> planPolicy -> autoApproval -> awaitApproval -> END]
  *     -> audit -> END
+ *
+ * awaitApproval is a human-in-the-loop stop: an approved plan halts the run
+ * there (status 'awaiting_approval') instead of applying automatically. The
+ * sandbox workspace and approved plan file are left in place so
+ * POST /api/graph/runs/:runId/apply can resume the pipeline from
+ * terraformApply -> verification -> [rollback | calculateRealizedSavings]
+ * -> audit -> END once a human clicks Apply (see lib/langgraph/apply-continuation.ts).
  *
  * The starred segment is a bounded loop (see MAX_CORRECTION_ATTEMPTS in
  * state.ts): a correctable sandbox failure routes to selfCorrection, which
@@ -38,10 +44,7 @@ import { selfCorrectionNode } from './nodes/self-correction'
 import { terraformPlanNode } from './nodes/terraform-plan'
 import { planPolicyNode } from './nodes/plan-policy'
 import { autoApprovalNode } from './nodes/auto-approval'
-import { terraformApplyNode } from './nodes/terraform-apply'
-import { verificationNode } from './nodes/verification'
-import { rollbackNode } from './nodes/rollback'
-import { calculateRealizedSavingsNode } from './nodes/calculate-realized-savings'
+import { awaitApprovalNode } from './nodes/await-approval'
 import { auditNode } from './nodes/audit'
 import {
   routeAfterAutoApproval,
@@ -53,13 +56,11 @@ import {
   routeAfterPlanRemediation,
   routeAfterSelfCorrection,
   routeAfterStaticSecurity,
-  routeAfterTerraformApply,
   routeAfterTerraformFormat,
   routeAfterTerraformGenerate,
   routeAfterTerraformInit,
   routeAfterTerraformPlan,
   routeAfterTerraformValidate,
-  routeAfterVerification,
 } from './routes'
 import { GraphStateAnnotation, type GraphNodeName, type GraphState, type GraphStateUpdate } from './state'
 
@@ -91,7 +92,7 @@ type NodeFn = (state: GraphState) => Promise<GraphStateUpdate>
  *  outcome without setting `error` is not treated as a node failure here —
  *  that's a business decision, not a node error.
  */
-function withNodeInstrumentation(node: GraphNodeName, fn: NodeFn): NodeFn {
+export function withNodeInstrumentation(node: GraphNodeName, fn: NodeFn): NodeFn {
   return async (state: GraphState): Promise<GraphStateUpdate> => {
     const startedAt = new Date()
     const startedAtIso = startedAt.toISOString()
@@ -166,10 +167,7 @@ export function buildGraph() {
     .addNode('terraformPlan', withNodeInstrumentation('terraformPlan', terraformPlanNode))
     .addNode('planPolicy', withNodeInstrumentation('planPolicy', planPolicyNode))
     .addNode('autoApproval', withNodeInstrumentation('autoApproval', autoApprovalNode))
-    .addNode('terraformApply', withNodeInstrumentation('terraformApply', terraformApplyNode))
-    .addNode('verification', withNodeInstrumentation('verification', verificationNode))
-    .addNode('rollback', withNodeInstrumentation('rollback', rollbackNode))
-    .addNode('calculateRealizedSavings', withNodeInstrumentation('calculateRealizedSavings', calculateRealizedSavingsNode))
+    .addNode('awaitApproval', withNodeInstrumentation('awaitApproval', awaitApprovalNode))
     .addNode('audit', withNodeInstrumentation('audit', auditNode))
     .addEdge(START, 'monitor')
     .addConditionalEdges('monitor', routeAfterMonitor, { detectAnomaly: 'detectAnomaly', audit: 'audit' })
@@ -197,15 +195,8 @@ export function buildGraph() {
     .addConditionalEdges('selfCorrection', routeAfterSelfCorrection, { terraformFormat: 'terraformFormat', audit: 'audit' })
     .addConditionalEdges('terraformPlan', routeAfterTerraformPlan, { planPolicy: 'planPolicy', audit: 'audit' })
     .addConditionalEdges('planPolicy', routeAfterPlanPolicy, { autoApproval: 'autoApproval', audit: 'audit' })
-    .addConditionalEdges('autoApproval', routeAfterAutoApproval, { terraformApply: 'terraformApply', audit: 'audit' })
-    .addConditionalEdges('terraformApply', routeAfterTerraformApply, { verification: 'verification', audit: 'audit' })
-    .addConditionalEdges('verification', routeAfterVerification, {
-      rollback: 'rollback',
-      calculateRealizedSavings: 'calculateRealizedSavings',
-      audit: 'audit',
-    })
-    .addEdge('rollback', 'audit')
-    .addEdge('calculateRealizedSavings', 'audit')
+    .addConditionalEdges('autoApproval', routeAfterAutoApproval, { awaitApproval: 'awaitApproval', audit: 'audit' })
+    .addEdge('awaitApproval', END)
     .addEdge('audit', END)
 
   return graph.compile()
